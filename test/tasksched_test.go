@@ -135,3 +135,74 @@ func TestTaskScheduler_RunNow(t *testing.T) {
 		t.Errorf("不存在任务应返回错误")
 	}
 }
+
+// TestTaskRunner_Pause 验证暂停标志的读写。
+func TestTaskRunner_Pause(t *testing.T) {
+	d := makeTempDir(t, "autosync-repo-*")
+	task := schedTask(t, "unitpause", d, "u", "1m")
+	r := tasksched.NewTaskRunner(task, schedLogger(t))
+	if r.Paused() {
+		t.Error("默认应非暂停")
+	}
+	r.SetPaused(true)
+	if !r.Paused() {
+		t.Error("SetPaused(true) 后应暂停")
+	}
+	r.SetPaused(false)
+	if r.Paused() {
+		t.Error("SetPaused(false) 后应非暂停")
+	}
+}
+
+// TestTaskScheduler_PauseBlocks 验证暂停时 ticker 不触发（无状态文件），恢复后触发。
+func TestTaskScheduler_PauseBlocks(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	task := schedTask(t, "pause", repo, remote, "50ms")
+	presetGitignore(t, task, repo, remote)
+
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t))
+	s.Runners()[0].SetPaused(true) // 启动前暂停
+	s.Start()
+	defer s.Stop()
+
+	time.Sleep(300 * time.Millisecond) // 暂停期间不应写状态文件
+	if _, err := os.Stat(task.ResolveStateFile()); err == nil {
+		t.Errorf("暂停期间不应写状态文件")
+	}
+	s.SetPaused("pause", false) // 恢复
+	if !waitStateFile(task, 2*time.Second) {
+		t.Errorf("恢复后应写状态文件")
+	}
+}
+
+// TestTaskScheduler_Reload 验证热重载：Reload 加入新任务后新任务被调度。
+func TestTaskScheduler_Reload(t *testing.T) {
+	repo1 := makeWorkRepo(t)
+	remote1 := makeBareRemote(t)
+	addRemote(t, repo1, "origin", remote1)
+	pushToRemote(t, repo1, "origin", "main")
+	task1 := schedTask(t, "r1", repo1, remote1, "1m")
+	presetGitignore(t, task1, repo1, remote1)
+
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task1}, schedLogger(t))
+	s.Start()
+	defer s.Stop()
+	if !waitStateFile(task1, 2*time.Second) {
+		t.Fatalf("task1 初始未运行")
+	}
+
+	repo2 := makeWorkRepo(t)
+	remote2 := makeBareRemote(t)
+	addRemote(t, repo2, "origin", remote2)
+	pushToRemote(t, repo2, "origin", "main")
+	task2 := schedTask(t, "r2", repo2, remote2, "1m")
+	presetGitignore(t, task2, repo2, remote2)
+
+	s.Reload([]*configstore.Task{task1, task2})
+	if !waitStateFile(task2, 3*time.Second) {
+		t.Errorf("Reload 后 task2 未运行")
+	}
+}

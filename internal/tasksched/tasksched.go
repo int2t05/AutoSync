@@ -20,9 +20,11 @@ import (
 
 // TaskRunner 执行单个任务的同步全流程。
 type TaskRunner struct {
-	task   *configstore.Task
-	logger *log.Logger
-	mu     stdsync.Mutex // 串行化同一任务的并发触发（tick + 手动）
+	task    *configstore.Task
+	logger  *log.Logger
+	mu      stdsync.Mutex // 串行化同一任务的并发触发（tick + 手动）
+	pauseMu stdsync.Mutex
+	paused  bool // 暂停标志：暂停时 ticker 跳过触发
 }
 
 // NewTaskRunner 创建任务执行器。
@@ -32,6 +34,20 @@ func NewTaskRunner(task *configstore.Task, logger *log.Logger) *TaskRunner {
 
 // Task 返回执行器关联的任务（供托盘查询状态）。
 func (r *TaskRunner) Task() *configstore.Task { return r.task }
+
+// SetPaused 设置任务暂停/恢复。暂停时定时 ticker 跳过触发（手动 RunNow 仍可强制执行）。
+func (r *TaskRunner) SetPaused(p bool) {
+	r.pauseMu.Lock()
+	r.paused = p
+	r.pauseMu.Unlock()
+}
+
+// Paused 返回任务是否暂停。
+func (r *TaskRunner) Paused() bool {
+	r.pauseMu.Lock()
+	defer r.pauseMu.Unlock()
+	return r.paused
+}
 
 // Run 执行一次同步：任务级锁 → .gitignore 维护 → Syncer → 写状态 → 通知。
 // 同任务已有实例持锁时跳过。返回同步结果。
@@ -118,11 +134,15 @@ func (s *TaskScheduler) Start() {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			r.Run() // 启动时立即执行一次
+			if !r.Paused() {
+				r.Run() // 启动时立即执行一次
+			}
 			for {
 				select {
 				case <-t.C:
-					r.Run()
+					if !r.Paused() {
+						r.Run()
+					}
 				case <-s.stop:
 					return
 				}
@@ -148,7 +168,7 @@ func (s *TaskScheduler) Stop() {
 	s.wg.Wait()
 }
 
-// RunNow 立即执行指定任务（手动同步），未找到返回错误。
+// RunNow 立即执行指定任务（手动同步，忽略暂停），未找到返回错误。
 func (s *TaskScheduler) RunNow(name string) (sync.SyncResult, error) {
 	for _, r := range s.runners {
 		if r.task.Name == name {
@@ -156,4 +176,28 @@ func (s *TaskScheduler) RunNow(name string) (sync.SyncResult, error) {
 		}
 	}
 	return sync.SyncResult{}, fmt.Errorf("任务不存在: %q", name)
+}
+
+// SetPaused 设置指定任务暂停/恢复。
+func (s *TaskScheduler) SetPaused(name string, paused bool) error {
+	for _, r := range s.runners {
+		if r.task.Name == name {
+			r.SetPaused(paused)
+			return nil
+		}
+	}
+	return fmt.Errorf("任务不存在: %q", name)
+}
+
+// Reload 用新任务列表重建执行器并重启 ticker（配置变更后热重载）。
+func (s *TaskScheduler) Reload(tasks []*configstore.Task) {
+	s.Stop()
+	runners := make([]*TaskRunner, 0, len(tasks))
+	for _, t := range tasks {
+		runners = append(runners, NewTaskRunner(t, s.logger))
+	}
+	s.mu.Lock()
+	s.runners = runners
+	s.mu.Unlock()
+	s.Start()
 }
