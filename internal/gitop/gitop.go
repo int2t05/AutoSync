@@ -1,5 +1,5 @@
 // gitop.go 定义 Git 操作的抽象接口与基于系统 git 的实现。
-// 同步引擎依赖 GitOperator 接口而非具体实现（依赖倒置），便于 P4 的 dry-run 装饰器扩展。
+// 同步引擎依赖 GitOperator 接口而非具体实现（依赖倒置），便于装饰器扩展（重试、dry-run）。
 // 所有 git 命令统一设置 GIT_TERMINAL_PROMPT=0 与 GIT_MERGE_AUTOEDIT=no，避免交互阻塞。
 package gitop
 
@@ -39,7 +39,7 @@ func (r Relation) String() string {
 }
 
 // GitOperator 是同步引擎依赖的 git 操作抽象。
-// P2 仅含主路径方法；冲突处理（force push / 备份分支 / reset）方法在 P3 扩展。
+// 含主路径方法与冲突处理方法（force push / 备份分支 / reset）。
 type GitOperator interface {
 	IsRepo() bool
 	Init(remote, remoteURL, branch string) error
@@ -52,7 +52,7 @@ type GitOperator interface {
 	PullRebase(remote, branch string) error
 	RebaseAbort() error
 	Push(remote, branch string) error
-	// 冲突处理（P3）
+	// 冲突处理
 	PushForce(remote, branch string) error                        // --force-with-lease
 	CreateBackupBranch(remote, branch, backupName string) error   // 从 remote/<branch> 建备份分支
 	PushBranch(remote, branchName string) error                   // 推送备份分支到远程
@@ -151,8 +151,8 @@ func (g *execGit) RemoteBranchExists(remote, branch string) (bool, error) {
 }
 
 // RelationTo 用 rev-parse 与 merge-base 判定本地与远程的关系。
-// 这是 TECH.md 中 IsDiverged 的修正版：原布尔判定无法区分"远程领先"，
-// 会导致远程领先时误走 push（非快进失败）。四态关系可正确路由。
+// 用四态关系替代布尔"是否分叉"：布尔判定无法区分"远程领先"，
+// 会导致远程领先时误走 push（非快进失败）。四态可正确路由。
 func (g *execGit) RelationTo(remote, branch string) (Relation, error) {
 	localHead, err := g.run("rev-parse", "HEAD")
 	if err != nil {

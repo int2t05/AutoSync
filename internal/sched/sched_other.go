@@ -6,6 +6,7 @@ package sched
 import "time"
 
 // stubScheduler 非 Windows 平台的调度桩。
+// TODO: 实现 launchd（macOS）/ cron（Linux）调度自安装
 type stubScheduler struct{}
 
 // NewScheduler 创建当前平台的调度器（非 Windows：桩）。

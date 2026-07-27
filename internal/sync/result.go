@@ -1,5 +1,5 @@
 // result.go 定义同步结果模型：Outcome 枚举与 SyncResult。
-// Outcome 驱动通知策略（P3）与状态记录；SyncResult 携带供日志/通知/状态使用的摘要信息。
+// Outcome 驱动通知策略与状态记录；SyncResult 携带供日志/通知/状态使用的摘要信息。
 package sync
 
 // Outcome 描述一次同步的最终结果。
@@ -41,7 +41,7 @@ func (o Outcome) String() string {
 type SyncResult struct {
 	Outcome      Outcome // 结果枚举
 	Message      string  // 摘要
-	Details      string  // 细节（如备份分支名，P3 用）
-	BackupBranch string  // local_wins 时的备份分支名（P3 用）
+	Details      string  // 细节（如备份分支名）
+	BackupBranch string  // local_wins 时的备份分支名
 	Err          error   // 失败时的底层错误
 }

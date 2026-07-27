@@ -1,5 +1,5 @@
 // syncer.go 实现同步状态机主路径：init → commit → fetch → 关系判定 → push/rebase。
-// P2 覆盖无冲突路径；rebase 冲突时中止并返回 Failed，冲突解决策略在 P3 接入。
+// rebase 冲突时中止并按 conflict_strategy 处理。
 package sync
 
 import (
@@ -203,6 +203,7 @@ type DryRunPlan struct {
 // DryRun 执行只读分析，输出同步计划而不改动仓库。
 // 跳过 fetch 与所有写操作，基于本地状态与已有远程引用判定关系。
 // 无法预判 rebase 是否冲突（需实际写操作），仅提示将使用的冲突策略。
+// TODO: 可选 fetch 以预判远程领先（当前基于陈旧远程引用，可能误报 UpToDate）
 func (s *Syncer) DryRun() DryRunPlan {
 	var steps []string
 	if !s.git.IsRepo() {

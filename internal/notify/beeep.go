@@ -13,7 +13,8 @@ func NewBeeepNotifier() Notifier {
 	return &beeepNotifier{}
 }
 
-// Notify 投递一条系统通知。severity 当前不影响 beeep 投递（标题已含语义），保留供未来区分图标。
+// Notify 投递一条系统通知。
+// TODO: 按 severity 区分通知图标（当前统一默认图标）
 func (n *beeepNotifier) Notify(title, body string, severity Severity) error {
 	return beeep.Notify(title, body, "")
 }

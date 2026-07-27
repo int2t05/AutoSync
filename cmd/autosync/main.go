@@ -1,5 +1,5 @@
 // main.go 是 AutoSync 的入口，负责 CLI 分发与依赖装配。
-// P4：sync 支持 --dry-run 只读预览与单实例锁；install/uninstall 通过 schtasks 自安装调度。
+// sync 支持 --dry-run 只读预览与单实例锁；install/uninstall 通过 schtasks 自安装调度。
 package main
 
 import (
@@ -95,7 +95,7 @@ func runSync(rest []string) int {
 		return 0
 	}
 
-	// 维护 .gitignore：仅追加缺失条目（US-010）
+	// 维护 .gitignore：仅追加缺失条目
 	gitignorePath := filepath.Join(cfg.RepoDir, ".gitignore")
 	if added, err := gitignore.Ensure(gitignorePath, cfg.Ignore); err != nil {
 		logger.Warn(fmt.Sprintf("维护 .gitignore 失败: %v", err))

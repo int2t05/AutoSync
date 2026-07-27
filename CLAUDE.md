@@ -8,7 +8,7 @@
 
 在做任何实现/修改前，必须先：
 
-- **阅读三份设计文档**：[docs/PRD.md](docs/PRD.md)（需求）、[docs/TECH.md](docs/TECH.md)（系统设计）、[docs/PLAN.md](docs/PLAN.md)（开发计划与验收）。任何功能实现须能追溯到 PRD 的 US 编号与 PLAN 的里程碑。
+- **阅读设计文档**：[docs/prd.md](docs/prd.md)（需求）、[docs/tech.md](docs/tech.md)（系统设计）、[docs/flow.md](docs/flow.md)（业务流程）、[docs/api.md](docs/api.md)（命令接口）、[docs/TODO.md](docs/TODO.md)（不足与方向）。任何功能实现须能追溯到 prd 的 US 编号。
 - **确认运行时**：Go 1.26+（本机位于 `D:\DevelopTools\go\bin\go.exe`，不在 PATH，需用全路径或导出 PATH）+ 系统 git 已安装。
 - **无必须前置加载的 Skill**。涉及测试/调试时可参考 `superpowers:test-driven-development`、`superpowers:systematic-debugging` 的思路，但**本项目的测试规则以本文档"开发边界"为准**（test/ 目录、禁止 mock、真实数据），与之冲突时以本文档为准。
 
@@ -16,7 +16,7 @@
 
 - **用途**：将指定本地文件夹与 git 远程仓库保持双向一致，定时轮询、自动提交、冲突自动处理，配置一次后完全无感。
 - **核心目标**：简洁、高效、无感；多设备双向同步；冲突零丢失（远程旧版本备份到分支可恢复）。
-- **技术栈**：Go 1.26+；`gopkg.in/yaml.v3`（配置）；`gen2brain/beeep`（系统通知，P3 起）；shell out 调系统 git（`exec.Command`）；无 Web 框架、无数据库、无 ORM。
+- **技术栈**：Go 1.26+；`gopkg.in/yaml.v3`（配置）；`gen2brain/beeep`（系统通知）；shell out 调系统 git（`exec.Command`）；无 Web 框架、无数据库、无 ORM。
 - **运行时**：系统已安装 git 并在 PATH；依赖系统 git 凭证（SSH key 或 credential helper），程序不管理凭证。
 - **交付**：单二进制（Windows 优先，架构跨平台），一次性命令 + OS 调度器（schtasks / launchd / cron）。
 
@@ -62,13 +62,14 @@ make build-all   # 三平台交叉编译
 | `internal/config` | Config 加载 / 默认值 / 校验 |
 | `internal/log` | 分级日志（文件+控制台，并发安全）|
 | `internal/gitignore` | .gitignore 自动维护（纯文件 I/O，追加去重）|
-| `internal/state` | 上次同步状态持久化（status 命令用，P3）|
-| `internal/gitop` | GitOperator 接口 + exec 实现（P2）|
-| `internal/sync` | 同步状态机、冲突处理、backup 清理（P2/P3）|
-| `internal/notify` | Notifier 接口 + beeep 实现（P3）|
-| `internal/sched` | Scheduler 接口 + 平台实现 schtasks/launchd/cron（P4）|
+| `internal/state` | 上次同步状态持久化（status 命令用）|
+| `internal/gitop` | GitOperator 接口 + exec 实现 + 重试装饰器 |
+| `internal/sync` | 同步状态机、冲突处理、backup 清理、dry-run |
+| `internal/notify` | Notifier 接口 + beeep 实现 |
+| `internal/lock` | 单实例锁（PID，跨平台）|
+| `internal/sched` | Scheduler 接口 + schtasks 实现 |
 | `test/` | **所有测试代码**（真实数据，禁止 mock）|
-| `docs/` | PRD.md / TECH.md / PLAN.md |
+| `docs/` | prd / tech / flow / api / TODO |
 | `config.example.yaml` | 配置模板 |
 | `Makefile` / `build.ps1` | 构建 / 测试脚本 |
 
@@ -76,7 +77,7 @@ make build-all   # 三平台交叉编译
 
 ### 始终要做 (Always do)
 
-- 实现前先读 PRD/TECH/PLAN，功能须映射到 US 编号与里程碑。
+- 实现前先读 prd/tech/flow，功能须映射到 US 编号。
 - 每个 `.go` 文件加**文件头注释**（中文，说明职责与所属包）；每个关键函数加**函数注释**（中文，解释功能/参数/返回/错误语义，而非字面动作）。
 - 待完善处显式标注 `// TODO: <说明>`。
 - 测试统一写在 `test/` 目录，使用**真实数据**（临时文件 / 临时 git 仓库），禁止任何 mock / fake / stub 测试替身。
@@ -96,7 +97,7 @@ make build-all   # 三平台交叉编译
 - 绝不整体覆盖 `.gitignore`，只从末尾追加。
 - 绝不为兼容旧版本写分支 / 降级代码。
 - 绝不在核心逻辑中硬编码平台路径分隔符或平台 syscall（如 user32.dll）。
-- 绝不做 PRD 非目标范围内的事（GUI / 托盘 / 实时监听 / 应用内认证管理 / 多文件夹 / 守护进程），除非用户明确要求。
+- 绝不做需求文档非目标范围内的事（GUI / 托盘 / 实时监听 / 应用内认证管理 / 多文件夹 / 守护进程），除非用户明确要求。
 - 绝不自动 force push 覆盖远程而不备份。
 
 ## 7. 注释规范
@@ -116,14 +117,14 @@ package config
 // Load 从指定路径读取并解析配置，填充默认值后校验必填项与合法性。
 // path: 配置文件路径；返回校验通过的 Config，或带明确信息的 error。
 func Load(path string) (*Config, error) {
-	// TODO: 支持 JSON 格式与远程配置（后续版本）
+	// TODO: 支持 JSON 格式与远程配置
 	...
 }
 ```
 
 ## 8. 资源
 
-- **设计文档**：[docs/PRD.md](docs/PRD.md) · [docs/TECH.md](docs/TECH.md) · [docs/PLAN.md](docs/PLAN.md)
+- **设计文档**：[docs/prd.md](docs/prd.md) · [docs/tech.md](docs/tech.md) · [docs/flow.md](docs/flow.md) · [docs/api.md](docs/api.md) · [docs/TODO.md](docs/TODO.md)
 - **配置模板**：`config.example.yaml`
 - **运行时**：Go 1.26+（`D:\DevelopTools\go\bin`）、系统 git、系统 git 凭证
 - **关键依赖**：`gopkg.in/yaml.v3`、`gen2brain/beeep`

@@ -1,6 +1,6 @@
 // sync_test.go 验证同步状态机主路径（真实 git 仓库 + 裸远程，无 mock）。
-// 覆盖 US-002/003/004/005/007：首次初始化、本地变更推送、无变更、远程分支不存在、
-// 远程领先/分叉的 rebase 合并、以及 P2 的冲突失败路径。
+// 覆盖：首次初始化、本地变更推送、无变更、远程分支不存在、
+// 远程领先/分叉的 rebase 合并、冲突三策略与备份清理、dry-run 只读。
 package tests
 
 import (
@@ -40,7 +40,7 @@ func newSyncer(t *testing.T, cfg *config.Config) *sync.Syncer {
 	return sync.NewSyncer(cfg, gitOp, logger)
 }
 
-// TestSync_FirstRun_Init 验证空目录 + 裸远程 → 初始化并首次推送（US-002）。
+// TestSync_FirstRun_Init 验证空目录 + 裸远程 → 初始化并首次推送。
 func TestSync_FirstRun_Init(t *testing.T) {
 	repo := makeTempDir(t, "autosync-empty-*") // 空目录，非 git 仓库
 	remote := makeBareRemote(t)
@@ -58,7 +58,7 @@ func TestSync_FirstRun_Init(t *testing.T) {
 	}
 }
 
-// TestSync_LocalChanges_Pushed 验证本地有新变更 → 自动提交并推送（US-003/US-007）。
+// TestSync_LocalChanges_Pushed 验证本地有新变更 → 自动提交并推送。
 func TestSync_LocalChanges_Pushed(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -92,7 +92,7 @@ func TestSync_NoChanges(t *testing.T) {
 	}
 }
 
-// TestSync_RemoteBranchNotExist 验证远程分支不存在 → 直接推送（US-004）。
+// TestSync_RemoteBranchNotExist 验证远程分支不存在 → 直接推送。
 func TestSync_RemoteBranchNotExist(t *testing.T) {
 	repo := makeWorkRepo(t) // 本地有提交
 	remote := makeBareRemote(t)
@@ -108,7 +108,7 @@ func TestSync_RemoteBranchNotExist(t *testing.T) {
 	}
 }
 
-// TestSync_RemoteAhead_AutoMerged 验证远程领先（其他设备推送了新提交）→ rebase 拉取合并（US-005）。
+// TestSync_RemoteAhead_AutoMerged 验证远程领先（其他设备推送了新提交）→ rebase 拉取合并。
 func TestSync_RemoteAhead_AutoMerged(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -127,7 +127,7 @@ func TestSync_RemoteAhead_AutoMerged(t *testing.T) {
 	}
 }
 
-// TestSync_Diverged_AutoMerged 验证双方各有独立提交（不同文件）→ rebase 成功合并（US-005）。
+// TestSync_Diverged_AutoMerged 验证双方各有独立提交（不同文件）→ rebase 成功合并。
 func TestSync_Diverged_AutoMerged(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -154,7 +154,7 @@ func TestSync_Diverged_AutoMerged(t *testing.T) {
 	}
 }
 
-// TestSync_Conflict_LocalWins 验证 local_wins：备份远程旧版本 + --force-with-lease 推送本地（US-006）。
+// TestSync_Conflict_LocalWins 验证 local_wins：备份远程旧版本 + --force-with-lease 推送本地。
 func TestSync_Conflict_LocalWins(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -191,7 +191,7 @@ func TestSync_Conflict_LocalWins(t *testing.T) {
 	}
 }
 
-// TestSync_Conflict_RemoteWins 验证 remote_wins：放弃本地，重置到远程（US-006）。
+// TestSync_Conflict_RemoteWins 验证 remote_wins：放弃本地，重置到远程。
 func TestSync_Conflict_RemoteWins(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -213,7 +213,7 @@ func TestSync_Conflict_RemoteWins(t *testing.T) {
 	}
 }
 
-// TestSync_Conflict_Abort 验证 abort：不做变更，本地保留、远程不变（US-006）。
+// TestSync_Conflict_Abort 验证 abort：不做变更，本地保留、远程不变。
 func TestSync_Conflict_Abort(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -241,7 +241,7 @@ func TestSync_Conflict_Abort(t *testing.T) {
 	}
 }
 
-// TestSync_BackupCleanup 验证 local_wins 后清理旧备份分支，保留最新 backup_keep 个（US-006）。
+// TestSync_BackupCleanup 验证 local_wins 后清理旧备份分支，保留最新 backup_keep 个。
 func TestSync_BackupCleanup(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -275,7 +275,7 @@ func TestSync_BackupCleanup(t *testing.T) {
 	}
 }
 
-// TestSync_DryRun_ReadOnly 验证 dry-run 只读：报告计划但不提交、不推送（US-012）。
+// TestSync_DryRun_ReadOnly 验证 dry-run 只读：报告计划但不提交、不推送。
 // UpToDate 状态下制造未提交变更，断言 HEAD 与远程均未改变，且计划提示将提交。
 func TestSync_DryRun_ReadOnly(t *testing.T) {
 	repo := makeWorkRepo(t)

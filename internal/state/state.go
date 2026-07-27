@@ -15,7 +15,7 @@ type State struct {
 	LastOutcome         string    `json:"last_outcome"`            // 上次结果标签（Outcome.String()）
 	LastMessage         string    `json:"last_message"`            // 摘要
 	BackupBranch        string    `json:"backup_branch,omitempty"` // local_wins 时的备份分支名
-	ConsecutiveFailures int       `json:"consecutive_failures"`    // 连续失败次数（预留：抑制重复通知）
+	ConsecutiveFailures int       `json:"consecutive_failures"`    // 连续失败次数，TODO: 用于抑制重复通知与退避告警
 }
 
 // Store 负责状态的读写，互斥锁保护并发安全。
