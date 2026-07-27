@@ -1,10 +1,11 @@
 # build.ps1 — AutoSync 构建/测试脚本（Windows PowerShell）
-# 用法：.\build.ps1 <test|vet|build|build-all|clean>
+# 用法：.\build.ps1 <test|vet|build|build-cli|build-all|clean>
 # 默认目标：build。需系统已安装 go 并在 PATH，或先 $env:PATH += ";D:\DevelopTools\go\bin"
+# 托盘构建（build/build-all）需 CGO + gcc（mingw），用 -tags traygui 启用 Fyne 托盘。
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-all", "clean")]
+    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-cli", "build-all", "clean")]
     [string]$Target = "build"
 )
 
@@ -16,25 +17,32 @@ function Invoke-Vet       { go vet ./... }
 function Invoke-Fmt       { go fmt ./... }
 function Invoke-Tidy      { go mod tidy }
 
-# 构建 Windows 双版本（带控制台 + 静默无窗口）
+# 构建 Windows 托盘双版本（控制台 + 静默无窗口；-tags traygui 启用 Fyne 托盘，需 CGO）
 function Invoke-Build {
-    go build -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
-    go build -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
-    Write-Host "构建完成：AutoSync.exe（控制台）+ AutoSync_Silent.exe（静默）"
+    go build -tags traygui -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
+    go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
+    Write-Host "构建完成：AutoSync.exe（控制台）+ AutoSync_Silent.exe（静默）— 含托盘"
 }
 
-# 三平台交叉编译（4 目标：Windows 控制台+静默 / macOS / Linux）
+# 构建 Windows CLI 版（无托盘，纯 Go，快速，供开发/脚本/CI）
+function Invoke-BuildCli {
+    go build -o AutoSync-CLI.exe ./cmd/autosync
+    Write-Host "构建完成：AutoSync-CLI.exe（CLI，无托盘）"
+}
+
+# 三平台交叉编译（Windows 托盘 + macOS/Linux CLI stub；非 Windows 纯 Go 可交叉编译）
 function Invoke-BuildAll {
-    go build -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
-    go build -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
+    go build -tags traygui -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
+    go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
+    $env:CGO_ENABLED = "0"
     $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o autosync-darwin ./cmd/autosync
     $env:GOOS = "linux";  $env:GOARCH = "amd64"; go build -o autosync-linux ./cmd/autosync
-    $env:GOOS = $null; $env:GOARCH = $null
+    $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
     Write-Host "交叉编译完成：AutoSync.exe / AutoSync_Silent.exe / autosync-darwin / autosync-linux"
 }
 
 function Invoke-Clean {
-    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync_Silent.exe, autosync-darwin, autosync-linux
+    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync_Silent.exe, AutoSync-CLI.exe, autosync-darwin, autosync-linux
 }
 
 switch ($Target) {
@@ -44,6 +52,7 @@ switch ($Target) {
     "fmt"       { Invoke-Fmt }
     "tidy"      { Invoke-Tidy }
     "build"     { Invoke-Build }
+    "build-cli" { Invoke-BuildCli }
     "build-all" { Invoke-BuildAll }
     "clean"     { Invoke-Clean }
 }

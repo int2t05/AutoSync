@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"autosync/internal/config"
+	"autosync/internal/configstore"
 	"autosync/internal/gitignore"
 	"autosync/internal/gitop"
 	"autosync/internal/lock"
@@ -18,16 +19,20 @@ import (
 	"autosync/internal/sched"
 	"autosync/internal/state"
 	"autosync/internal/sync"
+	"autosync/internal/tasksched"
+	"autosync/internal/tray"
 )
 
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
-// run 解析子命令并分发，返回退出码。
+// run 解析子命令并分发，返回退出码。无子命令（双击/裸跑）默认进入托盘守护。
 func run(args []string) int {
 	cmd, rest := parseCommand(args)
 	switch cmd {
+	case "tray":
+		return runTray(rest)
 	case "status":
 		return runStatus(rest)
 	case "install":
@@ -39,15 +44,15 @@ func run(args []string) int {
 	}
 }
 
-// parseCommand 识别子命令；无子命令时默认 sync 并保留全部参数（含 --config）。
+// parseCommand 识别子命令；无子命令或仅旗标时默认 tray（双击即托盘）。
 func parseCommand(args []string) (cmd string, rest []string) {
 	if len(args) > 0 {
 		switch args[0] {
-		case "sync", "status", "install", "uninstall":
+		case "sync", "status", "install", "uninstall", "tray":
 			return args[0], args[1:]
 		}
 	}
-	return "sync", args
+	return "tray", args
 }
 
 // runSync 执行单次同步：加载配置 → 日志 → .gitignore → 加锁 → 同步 → 持久化状态 → 通知。
@@ -140,6 +145,58 @@ func runSync(rest []string) int {
 	}
 	logger.Info(fmt.Sprintf("同步完成: %s — %s", result.Outcome, result.Message))
 	return 0
+}
+
+// runTray 启动托盘守护：加载多任务配置 → 日志 → 守护级单实例锁 → 调度器 → 托盘应用。
+// 无 traygui 标签构建时托盘为桩，Run 返回未启用错误。
+func runTray(rest []string) int {
+	fs := flag.NewFlagSet("autosync", flag.ContinueOnError)
+	configPath := fs.String("config", "", "配置文件路径（默认为可执行文件同目录的 autosync.conf.yaml）")
+	if err := fs.Parse(rest); err != nil {
+		return 1
+	}
+
+	store, err := configstore.Load(resolveTrayConfigPath(*configPath))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
+		return 1
+	}
+
+	logger, err := log.New(config.BesideExe("autosync.log"), false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 日志初始化失败: %v\n", err)
+		return 1
+	}
+	defer logger.Close()
+	logger.Info(fmt.Sprintf("AutoSync 托盘启动 | 任务数=%d", len(store.List())))
+
+	// 守护级单实例锁：防止多个托盘实例
+	daemonLock := lock.New(config.BesideExe("autosync.daemon.lock"))
+	acquired, release := daemonLock.Acquire()
+	if !acquired {
+		fmt.Fprintln(os.Stderr, "❌ 已有 AutoSync 实例在运行")
+		return 1
+	}
+	defer release()
+
+	sched := tasksched.NewTaskScheduler(store.List(), logger)
+	if err := tray.NewTrayApp(sched, store, logger).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// resolveTrayConfigPath 解析托盘配置路径：--config 优先，否则用可执行文件同目录的 autosync.conf.yaml。
+func resolveTrayConfigPath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	exePath, err := os.Executable()
+	if err != nil {
+		return "autosync.conf.yaml"
+	}
+	return filepath.Join(filepath.Dir(exePath), "autosync.conf.yaml")
 }
 
 // runInstall 注册系统定时任务，按配置间隔触发 `autosync sync --config <配置>`。
