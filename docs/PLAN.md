@@ -11,13 +11,13 @@
 
 ## 2. 里程碑总览
 
-| 阶段 | 名称 | 范围 | 映射 US | 版本 |
-|------|------|------|---------|------|
-| P1 | 基础骨架与配置 | 项目骨架、config、log、.gitignore | US-001, US-009, US-010 | v1.0 |
-| P2 | 核心同步引擎 | gitop 接口+实现+测试夹具、状态机主路径（init/commit/fetch/diverge/rebase/push） | US-002, US-003, US-004, US-005, US-007 | v1.0 |
-| P3 | 冲突处理与可观测性 | 三种冲突策略+backup 清理、通知策略、state 文件+status 命令 | US-006, US-008, status | v1.0 |
-| P4 | 调度与健壮性 | schtasks install/uninstall、单实例锁、重试、dry-run | US-011, dry-run | v1.0 |
-| P5 | 发布与跨平台 | 交叉编译、Makefile/build.ps1、README、v1.0 发布 | — | v1.0 |
+| 阶段 | 名称               | 范围                                                                            | 映射 US                                | 版本 |
+| ---- | ------------------ | ------------------------------------------------------------------------------- | -------------------------------------- | ---- |
+| P1   | 基础骨架与配置     | 项目骨架、config、log、.gitignore                                               | US-001, US-009, US-010                 | v1.0 |
+| P2   | 核心同步引擎       | gitop 接口+实现+测试夹具、状态机主路径（init/commit/fetch/diverge/rebase/push） | US-002, US-003, US-004, US-005, US-007 | v1.0 |
+| P3   | 冲突处理与可观测性 | 三种冲突策略+backup 清理、通知策略、state 文件+status 命令                      | US-006, US-008, status                 | v1.0 |
+| P4   | 调度与健壮性       | schtasks install/uninstall、单实例锁、重试、dry-run                             | US-011, dry-run                        | v1.0 |
+| P5   | 发布与跨平台       | 交叉编译、Makefile/build.ps1、README、v1.0 发布                                 | —                                     | v1.0 |
 
 依赖顺序：P1 → P2 → P3 → P4 → P5（严格线性，每阶段验收通过方可进入下一阶段）。
 
@@ -28,6 +28,7 @@
 **范围**：建立项目结构（`cmd/autosync` + `internal/*`）；`Config` 加载/校验/默认值；`Logger`；`.gitignore` 自动维护。
 
 **验收测试**
+
 - 自动化（门槛）
   - [ ] config 缺失必填项 / 非法策略 / 目录不存在 → 退出码 1（单测）
   - [ ] 可选项默认值正确（remote=origin, branch=main, interval=1m, conflict_strategy=local_wins）（单测）
@@ -43,6 +44,7 @@
 **范围**：`GitOperator` 接口 + `execGit` 实现 + `fakeGit` 测试桩；`Syncer` 状态机主路径（S1→S5→S9）；临时仓库集成测试夹具。
 
 **验收测试**
+
 - 自动化（门槛，集成测试用临时 git 仓库 + `file://` remote）
   - [ ] 首次运行（无 `.git`）→ init + 首次 push（US-002）
   - [ ] 有本地变更 → add + commit + push；无变更 → 跳过提交（US-003）
@@ -60,6 +62,7 @@
 **范围**：三种冲突策略 + backup 分支自动清理（保留 N=10）；`Notifier`（beeep）+ 通知策略映射；`StateStore` + `status` 命令。
 
 **验收测试**
+
 - 自动化（门槛）
   - [ ] 构造冲突：local_wins → 备份分支 `backup/remote-*` 存在且可 checkout 恢复 + `--force-with-lease` 成功（US-006）
   - [ ] remote_wins → 本地被 reset --hard，未推送改动丢失（US-006）
@@ -77,6 +80,7 @@
 **范围**：`Scheduler`（Windows schtasks install/uninstall）；单实例锁；网络操作重试；`sync --dry-run`。
 
 **验收测试**
+
 - 自动化（门槛）
   - [ ] 重试单测：前 2 次失败、第 3 次成功 → 最终成功；3 次全失败 → 判定失败
   - [ ] dry-run 集成测试：输出计划（将提交/分叉/策略），仓库无任何 commit/push/分支变更
@@ -93,6 +97,7 @@
 **范围**：三平台交叉编译；`Makefile`/`build.ps1`；`README.md`；`config.example.yaml`；v1.0 发布。
 
 **验收测试**
+
 - 自动化（门槛）
   - [ ] `make build-all`：Windows（控制台+静默版）/ macOS / Linux 四个目标 `go build` 全部通过
   - [ ] `make test` 全绿
@@ -115,15 +120,15 @@
 
 ## 5. 后续路线（post-v1.0）
 
-| 项 | 说明 |
-|----|------|
-| macOS/Linux 自安装 | launchd plist / cron 实现 `Scheduler.Install` |
-| daemon 模式 | 内置 ticker 长驻，支持亚分钟级间隔 |
-| 多文件夹 | 单进程多任务或多实例配置管理 |
-| HTTPS token 引导 | 降低 SSH 配置门槛 |
-| 连续 N 次失败降噪 | state 文件已预留 `ConsecutiveFailures` 字段 |
-| backup 清理增强 | 按时间过期、按大小、跨设备协调 |
-| 托盘应用 | 常驻托盘 + 状态可视化（PRD 后续增强） |
+| 项                 | 说明                                           |
+| ------------------ | ---------------------------------------------- |
+| macOS/Linux 自安装 | launchd plist / cron 实现`Scheduler.Install` |
+| daemon 模式        | 内置 ticker 长驻，支持亚分钟级间隔             |
+| 多文件夹           | 单进程多任务或多实例配置管理                   |
+| HTTPS token 引导   | 降低 SSH 配置门槛                              |
+| 连续 N 次失败降噪  | state 文件已预留`ConsecutiveFailures` 字段   |
+| backup 清理增强    | 按时间过期、按大小、跨设备协调                 |
+| 托盘应用           | 常驻托盘 + 状态可视化（PRD 后续增强）          |
 
 ## 6. 验收测试约定
 

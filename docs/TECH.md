@@ -137,9 +137,10 @@ S0 Start
  ├─ S4 RemoteBranchExists?
  │     ├─ 否 ──► S9 Push ──► END(Pushed)
  │     └─ 是
- ├─ S5 IsDiverged?
- │     ├─ 否 ──► S9 Push ──► END(Pushed | NoChanges)
- │     └─ 是
+ ├─ S5 RelationTo（本地 vs 远程四态）
+ │     ├─ UpToDate ──────────────────────────► END(NoChanges)
+ │     ├─ LocalAhead ──► S9 Push ────────────► END(Pushed)
+ │     └─ RemoteAhead / Diverged
  ├─ S6 PullRebase
  │     ├─ 成功 ──► S9 Push ──► END(AutoMerged)
  │     └─ 失败 ──► S7 RebaseAbort ──► S8 ResolveConflict
@@ -156,8 +157,9 @@ S0 Start
 | S1→S2 | 已是仓库 | StageAll |
 | S3→END | fetch 重试失败 | Failed |
 | S4→S9 | 远程分支不存在 | Push |
-| S5→S9 | 未分叉 | Push |
-| S5→S6 | 分叉 | PullRebase |
+| S5→END | UpToDate | NoChanges |
+| S5→S9 | LocalAhead | Push |
+| S5→S6 | RemoteAhead/Diverged | PullRebase |
 | S6→S9 | rebase 成功 | Push |
 | S6→S7 | rebase 失败 | RebaseAbort→ResolveConflict |
 | S8→END | 策略执行完 | ConflictResolved / Aborted |
@@ -174,10 +176,11 @@ type GitOperator interface {
     Commit(msg string) error
     Fetch(remote string) error
     RemoteBranchExists(remote, branch string) (bool, error)
-    IsDiverged(remote, branch string) (bool, error)
+    RelationTo(remote, branch string) (Relation, error)  // 四态：UpToDate/LocalAhead/RemoteAhead/Diverged
     PullRebase(remote, branch string) error
     RebaseAbort() error
     Push(remote, branch string) error
+    // —— 以下为 P3 冲突处理扩展 ——
     PushForce(remote, branch string) error          // 用 --force-with-lease（比 --force 安全）
     CreateBackupBranch(remote, branch, backupName string) error
     PushBranch(remote, branchName string) error
@@ -185,7 +188,6 @@ type GitOperator interface {
     DeleteLocalBranch(branchName string) error
     ListBackupBranches(remote string) ([]string, error)  // 匹配 backup/remote-*
     ResetHardToRemote(remote, branch string) error       // reset --hard + clean -fd
-    EnsureGitignore(entries []string) error
 }
 
 // internal/notify
@@ -203,8 +205,8 @@ type Scheduler interface {
 
 **实现**：
 - `execGit`：shell out 系统 git，统一设 `GIT_TERMINAL_PROMPT=0`、`GIT_MERGE_AUTOEDIT=no`，捕获合并输出
-- `fakeGit`：测试桩，按预设返回值驱动状态机分支覆盖
-- `dryRunGit`：装饰器，拦截写操作（Commit/Push/Rebase/Reset/Branch...）改为记录，读操作放行
+- `dryRunGit`（P4）：装饰器，拦截写操作（Commit/Push/Rebase/Reset/Branch...）改为记录，读操作放行
+- 注：按项目规则禁止 mock/fake 测试桩，测试统一用真实 git 临时仓库驱动（见 §12）。`.gitignore` 维护已独立为 `internal/gitignore` 包，不在 GitOperator。
 
 ## 8. 横切关注点
 
@@ -292,9 +294,11 @@ GOOS=linux   GOARCH=amd64 go build -o autosync ./cmd/autosync
 
 | 层级 | 范围 | 方式 |
 |------|------|------|
-| 单测 | 纯函数 + 状态机分支 | `fakeGit` 注入预设返回值，覆盖状态机各转移（含 rebase 失败、三种冲突策略、cleanup 排序）|
-| 集成 | 真实 git 端到端 | 临时目录初始化真实 git 仓库 + `file://` 本地 remote，跑 `execGit` + `Syncer`，断言仓库状态 |
-| 集成场景 | 冲突构造 | 两侧分别提交冲突文件，验证 local_wins 备份分支可恢复、remote_wins 丢弃本地 |
+| 单测 | 纯函数 | 配置解析、日志、.gitignore 维护等，基于真实临时文件 |
+| 集成 | 状态机主路径 | 临时目录初始化真实 git 仓库 + 本地裸 remote，跑 `execGit` + `Syncer`，断言仓库状态与 Outcome |
+| 集成场景 | 冲突构造（P3） | 两侧分别提交冲突文件，验证 local_wins 备份分支可恢复、remote_wins 丢弃本地 |
+
+**禁止 mock**：按项目规则不使用任何 mock/fake/stub 测试桩；所有测试基于真实数据（真实 git 仓库、真实文件）。测试代码统一在 `test/` 目录，黑盒测试导出 API。
 
 覆盖目标：状态机所有 Outcome 至少一条用例；冲突三策略各一条；cleanup 保留 N 条；retry 在前 N-1 次失败后成功。
 
@@ -307,16 +311,12 @@ autosync/
 │   ├── config/config.go            # Config + Load + Validate
 │   ├── log/log.go                  # Logger
 │   ├── state/state.go              # StateStore + State
-│   ├── gitop/
-│   │   ├── op.go                   # GitOperator 接口
-│   │   ├── exec.go                 # execGit 实现
-│   │   ├── fake.go                 # fakeGit 测试桩
-│   │   └── dryrun.go               # dryRunGit 装饰器
+│   ├── gitignore/gitignore.go      # .gitignore 自动维护（纯文件 I/O，追加去重）
+│   ├── gitop/gitop.go              # GitOperator 接口 + execGit 实现 + Relation
 │   ├── sync/
 │   │   ├── syncer.go               # 状态机引擎
-│   │   ├── conflict.go             # 冲突处理 + backup 清理
-│   │   ├── result.go               # Outcome / SyncResult
-│   │   └── syncer_test.go
+│   │   ├── conflict.go             # 冲突处理 + backup 清理（P3）
+│   │   └── result.go               # Outcome / SyncResult
 │   ├── notify/
 │   │   ├── notify.go               # Notifier 接口 + 策略映射
 │   │   └── beeep.go                # beeep 实现
@@ -325,6 +325,11 @@ autosync/
 │       ├── sched_windows.go        # schtasks
 │       ├── sched_darwin.go         # launchd（后续）
 │       └── sched_linux.go          # cron（后续）
+├── test/                           # 所有测试（真实数据，禁止 mock）
+│   ├── main_test.go                # TestMain：git 身份环境
+│   ├── git_helper_test.go          # 真实 git 仓库夹具
+│   ├── config_test.go / log_test.go / gitignore_test.go
+│   └── sync_test.go                # 同步状态机集成测试
 ├── config.example.yaml
 ├── go.mod / go.sum
 ├── Makefile / build.ps1

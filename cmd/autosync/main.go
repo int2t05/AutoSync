@@ -1,6 +1,6 @@
 // main.go 是 AutoSync 的入口，负责 CLI 分发与依赖装配。
-// P1 阶段：解析配置路径、加载并校验配置、初始化日志、维护 .gitignore，
-// 验证基础设施可用；同步逻辑与子命令分发在后续里程碑实现。
+// 当前（P2）：加载配置 → 初始化日志 → 维护 .gitignore → 构造 gitop/Syncer 执行单次同步 → 记录结果。
+// 子命令分发、通知、调度、dry-run 在后续里程碑实现。
 package main
 
 import (
@@ -11,7 +11,9 @@ import (
 
 	"autosync/internal/config"
 	"autosync/internal/gitignore"
+	"autosync/internal/gitop"
 	"autosync/internal/log"
+	"autosync/internal/sync"
 )
 
 func main() {
@@ -28,7 +30,7 @@ func run(args []string) int {
 
 	path := resolveConfigPath(*configPath)
 
-	// 加载并校验配置：失败立即退出，符合 US-001
+	// 加载并校验配置：失败立即退出（US-001）
 	cfg, err := config.Load(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
@@ -54,9 +56,19 @@ func run(args []string) int {
 		logger.Info(fmt.Sprintf("已向 .gitignore 追加 %d 条", added))
 	}
 
-	// TODO: 分发子命令（sync / install / uninstall / status）— P2/P4
-	// TODO: 执行同步状态机（init / commit / fetch / rebase / push / 冲突处理）— P2/P3
-	logger.Info("AutoSync P1 基础设施就绪（同步逻辑待 P2 实现）")
+	// 构造 git 操作器与同步器，执行单次同步
+	gitOp := gitop.NewExecGit(cfg.RepoDir, logger)
+	syncer := sync.NewSyncer(cfg, gitOp, logger)
+	result := syncer.Run()
+
+	if result.Outcome == sync.OutcomeFailed {
+		logger.Error(fmt.Sprintf("同步失败: %s", result.Message))
+		// TODO: P3 失败/冲突时发系统通知
+		return 1
+	}
+	logger.Info(fmt.Sprintf("同步完成: %s — %s", result.Outcome, result.Message))
+	// TODO: P3 按 Outcome 决定通知策略（成功静默、冲突/失败通知）
+	// TODO: P4 支持子命令分发（sync/install/uninstall/status）与 dry-run
 	return 0
 }
 
