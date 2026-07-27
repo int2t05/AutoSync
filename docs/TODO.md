@@ -58,12 +58,6 @@ flowchart LR
 | `internal/notify/beeep.go:17` | 按 severity 区分通知图标（当前统一默认图标） |
 | `internal/state/state.go:18` | 启用 `ConsecutiveFailures` 抑制重复通知与退避告警 |
 
-### 跨平台调度
-
-| 位置 | TODO |
-|------|------|
-| `internal/sched/sched_other.go:9` | 实现 launchd（macOS）/ cron（Linux）调度自安装 |
-
 ### 配置与多实例
 
 | 位置 | TODO |

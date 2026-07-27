@@ -84,29 +84,28 @@ AutoSync 状态
 
 ## install
 
-注册系统定时任务，按 `interval` 触发 `autosync sync --config <配置>`。
+设置开机自启：写注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，登录即启动托盘守护。
 
 ```
-autosync install [--config <path>]
+autosync install [--config <tray-conf>]
 ```
 
 **请求**
 
 ```
-$ autosync install --config D:\sync\config.yaml
+$ autosync install
 ```
 
 **响应**
 
 ```
-✅ 已安装定时任务 AutoSync：每 1m 执行一次
-   命令: "D:\sync\autosync.exe" sync --config "D:\sync\config.yaml"
+✅ 已设置开机自启："D:\AutoSync\AutoSync.exe" tray
 ```
-退出码 `0`。Windows 用 schtasks（`/SC MINUTE /MO <n> /F`），间隔 < 1 分钟钳制为 1。非 Windows 返回未实现错误，退出码 `1`。
+退出码 `0`。`--config` 指定托盘配置路径（相对路径转绝对），缺省由托盘自行解析同目录 `autosync.conf.yaml`。非 Windows 返回未实现错误，退出码 `1`。
 
 ## uninstall
 
-移除系统定时任务。
+移除开机自启注册表项。
 
 ```
 autosync uninstall
@@ -121,7 +120,7 @@ $ autosync uninstall
 **响应**
 
 ```
-✅ 已移除定时任务 AutoSync
+✅ 已移除开机自启
 ```
 退出码 `0`。
 
@@ -134,15 +133,9 @@ autosync                      # 启动托盘守护
 ```
 
 - 配置窗口：任务列表增删改，每任务 repo_dir / remote_url / branch / interval / conflict_strategy 等。
-- 托盘菜单：各任务手动同步 / 暂停、打开配置、状态、开机自启开关、退出。
+- 托盘菜单：各任务手动同步 / 暂停、开机自启开关、打开配置、退出（同步状态经 `autosync status` 查询）。
 - 多任务配置：`autosync.conf.yaml` 的 `tasks: [...]`。
-
-**install / uninstall 语义变更**：V1.1 改为注册表 `HKCU\...\Run` 键开关（登录自启托盘守护），替代 V1.0 的 schtasks 定时任务。
-
-```
-autosync install              # 写注册表 Run 键，开机自启托盘
-autosync uninstall            # 移除自启
-```
+- 开机自启：`install` 写注册表 Run 键、`uninstall` 移除（见上）；托盘菜单亦可切换。
 
 ## 配置文件
 

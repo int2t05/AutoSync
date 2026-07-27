@@ -1,5 +1,5 @@
 // main.go 是 AutoSync 的入口，负责 CLI 分发与依赖装配。
-// sync 支持 --dry-run 只读预览与单实例锁；install/uninstall 通过 schtasks 自安装调度。
+// sync 支持 --dry-run 只读预览与单实例锁；install/uninstall 通过注册表 Run 键开关开机自启。
 package main
 
 import (
@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"autosync/internal/autostart"
 	"autosync/internal/config"
 	"autosync/internal/configstore"
 	"autosync/internal/gitignore"
@@ -16,7 +17,6 @@ import (
 	"autosync/internal/lock"
 	"autosync/internal/log"
 	"autosync/internal/notify"
-	"autosync/internal/sched"
 	"autosync/internal/state"
 	"autosync/internal/sync"
 	"autosync/internal/tasksched"
@@ -199,18 +199,12 @@ func resolveTrayConfigPath(explicit string) string {
 	return filepath.Join(filepath.Dir(exePath), "autosync.conf.yaml")
 }
 
-// runInstall 注册系统定时任务，按配置间隔触发 `autosync sync --config <配置>`。
-// 用宽松加载：允许在仓库目录尚未初始化时安装调度。
+// runInstall 设置开机自启：注册表 Run 键写入托盘守护启动命令，登录即自启。
+// --config 可指定托盘配置路径（相对路径转绝对，避免登录时工作目录不同），缺省由托盘自行解析。
 func runInstall(rest []string) int {
 	fs := flag.NewFlagSet("autosync install", flag.ContinueOnError)
-	configPath := fs.String("config", "", "配置文件路径")
+	configPath := fs.String("config", "", "托盘配置文件路径（默认 autosync.conf.yaml）")
 	if err := fs.Parse(rest); err != nil {
-		return 1
-	}
-
-	cfg, err := config.LoadLenient(resolveConfigPath(*configPath))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
 		return 1
 	}
 
@@ -219,24 +213,32 @@ func runInstall(rest []string) int {
 		fmt.Fprintf(os.Stderr, "❌ 获取可执行文件路径失败: %v\n", err)
 		return 1
 	}
-	resolvedConfig := resolveConfigPath(*configPath)
 
-	if err := sched.NewScheduler().Install(binPath, resolvedConfig, cfg.IntervalDur); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 安装调度失败: %v\n", err)
+	// 仅显式 --config 时写入命令；相对路径转绝对，防止登录时工作目录不一致
+	cfgArg := ""
+	if *configPath != "" {
+		if abs, err := filepath.Abs(*configPath); err == nil {
+			cfgArg = abs
+		} else {
+			cfgArg = *configPath
+		}
+	}
+
+	if err := autostart.Enable(binPath, cfgArg); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 设置开机自启失败: %v\n", err)
 		return 1
 	}
-	fmt.Printf("✅ 已安装定时任务 %s：每 %s 执行一次\n", sched.TaskName, cfg.Interval)
-	fmt.Printf("   命令: \"%s\" sync --config \"%s\"\n", binPath, resolvedConfig)
+	fmt.Printf("✅ 已设置开机自启：%s\n", autostart.BuildRunCommand(binPath, cfgArg))
 	return 0
 }
 
-// runUninstall 移除系统定时任务。
+// runUninstall 移除开机自启注册表项。
 func runUninstall() int {
-	if err := sched.NewScheduler().Uninstall(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 移除调度失败: %v\n", err)
+	if err := autostart.Disable(); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 移除开机自启失败: %v\n", err)
 		return 1
 	}
-	fmt.Printf("✅ 已移除定时任务 %s\n", sched.TaskName)
+	fmt.Println("✅ 已移除开机自启")
 	return 0
 }
 

@@ -56,7 +56,7 @@ flowchart LR
 - FR-7 单实例锁，并发实例静默跳过。
 - FR-8 `status` 持久化并展示上次同步结果。
 - FR-9 通知策略：成功静默，InitDone 信息，冲突警告，失败错误。
-- FR-10 `install` / `uninstall` 注册 / 移除系统调度（Windows schtasks）。
+- FR-10 `install` / `uninstall` 开关开机自启（Windows 注册表 `Run` 键，登录启动托盘守护）。
 - FR-11 `--dry-run` 只读输出同步计划。
 - FR-12 `.gitignore` 追加式维护。
 

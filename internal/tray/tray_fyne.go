@@ -7,6 +7,7 @@ package tray
 
 import (
 	"fmt"
+	"os"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -16,6 +17,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"autosync/internal/autostart"
 	"autosync/internal/configstore"
 	"autosync/internal/log"
 	"autosync/internal/tasksched"
@@ -74,8 +76,31 @@ func (a *TrayApp) buildMenu() *fyne.Menu {
 		)
 		items = append(items, taskItem)
 	}
+	// 开机自启开关：根据当前状态切换注册表 Run 键
+	autoLabel := "开机自启"
+	if autostart.IsEnabled() {
+		autoLabel = "✓ 开机自启"
+	}
+	autoItem := fyne.NewMenuItem(autoLabel, func() {
+		exe, err := os.Executable()
+		if err != nil {
+			a.logger.Warn(fmt.Sprintf("获取可执行文件路径失败: %v", err))
+			return
+		}
+		if autostart.IsEnabled() {
+			if err := autostart.Disable(); err != nil {
+				a.logger.Warn(fmt.Sprintf("关闭开机自启失败: %v", err))
+			}
+		} else {
+			if err := autostart.Enable(exe, ""); err != nil {
+				a.logger.Warn(fmt.Sprintf("设置开机自启失败: %v", err))
+			}
+		}
+		a.refreshMenu()
+	})
 	items = append(items,
 		fyne.NewMenuItemSeparator(),
+		autoItem,
 		fyne.NewMenuItem("配置...", func() { a.showConfig() }),
 		fyne.NewMenuItem("退出", func() { a.app.Quit() }),
 	)

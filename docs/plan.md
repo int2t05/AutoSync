@@ -55,7 +55,7 @@ flowchart LR
 
 ## M3 · 配置窗口与托盘菜单
 
-**范围**：Fyne 配置窗口（任务列表 CRUD）；托盘右键菜单（各任务手动同步/暂停、打开配置、状态、开机自启开关、退出）；托盘状态回显。
+**范围**：Fyne 配置窗口（任务列表 CRUD）；托盘右键菜单（各任务手动同步/暂停、开机自启开关、打开配置、退出）。
 
 **改动**
 - `internal/tray`：配置窗口（表格 + 增删改表单）、托盘菜单、状态 tooltip。
@@ -77,14 +77,14 @@ flowchart LR
 
 **改动**
 - `cmd/autosync/main.go`：`install`/`uninstall` 改调 autostart（取代 schtasks）。
-- `internal/sched`：schtasks 路径保留供 CLI 一次性模式兼容，或标记弃用（实现时定）。
+- `internal/sched`：V1.1 由托盘守护 + autostart 取代，已移除（含 `test/sched_test.go`）。
 
 **验收**
-- [ ] autostart 参数构造纯函数单测（跨平台）
+- [x] autostart 参数构造纯函数单测（跨平台）
 - [ ] `install` 写注册表 Run 键、`uninstall` 移除（Windows 手动 + 注册表断言）
 - [ ] 端到端：双击 → 配置两任务 → 托盘定时同步 → 右键手动 → 重启自启（真实 GitHub 仓库冒烟）
 - [ ] CLI `sync`/`status` 与托盘共存不冲突（单实例锁验证）
-- [ ] `go build` / `vet` / `test` / `-race` 全绿
+- [x] `go build` / `vet` / `test` / `-race` 全绿
 
 ## 约定
 

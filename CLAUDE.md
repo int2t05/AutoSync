@@ -18,7 +18,7 @@
 - **核心目标**：简洁、高效、无感；多设备双向同步；冲突零丢失（远程旧版本备份到分支可恢复）。
 - **技术栈**：Go 1.26+；`gopkg.in/yaml.v3`（配置）；`gen2brain/beeep`（系统通知）；shell out 调系统 git（`exec.Command`）；无 Web 框架、无数据库、无 ORM。
 - **运行时**：系统已安装 git 并在 PATH；依赖系统 git 凭证（SSH key 或 credential helper），程序不管理凭证。
-- **交付**：单二进制（Windows 优先，架构跨平台），一次性命令 + OS 调度器（schtasks / launchd / cron）。
+- **交付**：单二进制（Windows 优先，架构跨平台），托盘常驻守护（Fyne）+ 注册表开机自启；CLI 一次性命令保留供脚本 / 无头。
 
 ## 4. 常用命令
 
@@ -67,7 +67,10 @@ make build-all   # 三平台交叉编译
 | `internal/sync` | 同步状态机、冲突处理、backup 清理、dry-run |
 | `internal/notify` | Notifier 接口 + beeep 实现 |
 | `internal/lock` | 单实例锁（PID，跨平台）|
-| `internal/sched` | Scheduler 接口 + schtasks 实现 |
+| `internal/configstore` | 多任务配置 Store（autosync.conf.yaml，CRUD + 持久化）|
+| `internal/tasksched` | 任务调度：每任务 ticker + TaskRunner 复用 Syncer |
+| `internal/tray` | 托盘守护应用（Fyne，构建标签 traygui 隔离）|
+| `internal/autostart` | 开机自启（Windows 注册表 Run 键，非 Windows stub）|
 | `test/` | **所有测试代码**（真实数据，禁止 mock）|
 | `docs/` | prd / tech / flow / api / TODO / plan |
 | `config.example.yaml` | 配置模板 |

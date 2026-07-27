@@ -67,22 +67,25 @@ flowchart LR
 ## 目录结构
 
 ```
-cmd/autosync/      入口：CLI 分发与依赖装配
-internal/config    配置加载 / 默认值 / 校验
-internal/log       分级日志（文件 + 控制台，并发安全）
-internal/gitignore .gitignore 追加式维护
-internal/gitop     GitOperator 接口 + exec 实现 + 重试装饰器
-internal/sync      同步状态机 / 冲突处理 / dry-run / backup 清理
-internal/notify    通知策略 + beeep 实现
-internal/state     上次同步状态持久化
-internal/lock      单实例锁（PID，跨平台）
-internal/sched     Scheduler 接口 + schtasks 实现
-test/              全部测试（真实 git 临时仓库，禁止 mock）
+cmd/autosync/         入口：CLI 分发与依赖装配
+internal/config       配置加载 / 默认值 / 校验
+internal/log          分级日志（文件 + 控制台，并发安全）
+internal/gitignore    .gitignore 追加式维护
+internal/gitop        GitOperator 接口 + exec 实现 + 重试装饰器
+internal/sync         同步状态机 / 冲突处理 / dry-run / backup 清理
+internal/notify       通知策略 + beeep 实现
+internal/state        上次同步状态持久化
+internal/lock         单实例锁（PID，跨平台）
+internal/configstore  多任务配置 Store（autosync.conf.yaml，CRUD + 持久化）
+internal/tasksched    任务调度：每任务 ticker + TaskRunner 复用 Syncer
+internal/tray         托盘守护应用（Fyne，构建标签 traygui 隔离）
+internal/autostart    开机自启（Windows 注册表 Run 键，非 Windows stub）
+test/                 全部测试（真实 git 临时仓库，禁止 mock）
 ```
 
 ## 平台策略
 
-核心逻辑跨平台；平台差异用构建标签隔离（`//go:build windows` / `!windows`）。`pidAlive`、`Scheduler` 按平台分文件实现。路径用 `filepath`，不硬编码分隔符。
+核心逻辑跨平台；平台差异用构建标签隔离（`//go:build windows` / `!windows`）。`pidAlive`、`autostart` 按平台分文件实现；`tray` 用 `traygui` 标签隔离 Fyne。路径用 `filepath`，不硬编码分隔符。
 
 ## V1.1 架构：托盘守护
 
@@ -105,7 +108,7 @@ flowchart TB
 - **多任务**：`autosync.conf.yaml` 的 `tasks: [...]`，每任务独立 state（`autosync.state-<name>.json`）与 lock。旧单配置无 `tasks` 视为单任务（向后兼容）。
 - **GUI**：Fyne（纯 Go，窗口 + 托盘一体，跨平台）。
 - **自启**：`install` / `uninstall` 改为注册表 `HKCU\...\Run` 键开关（替代 schtasks）。非 Windows 留 stub。
-- **托盘菜单**：各任务手动同步 / 暂停、打开配置、状态、开机自启开关、退出。
+- **托盘菜单**：各任务手动同步 / 暂停、开机自启开关、打开配置、退出（同步状态经 `autosync status` 查询）。
 
 ## 测试策略
 
