@@ -6,11 +6,13 @@ package sync
 type Outcome int
 
 const (
-	OutcomeInitDone     Outcome = iota // 首次初始化完成
-	OutcomeNoChanges                   // 无变更且已是最新
-	OutcomePushed                      // 直接推送成功（含新建远程分支）
-	OutcomeAutoMerged                  // rebase 自动合并成功
-	OutcomeFailed                      // 错误（P2：含检测到但未解决的冲突）
+	OutcomeInitDone          Outcome = iota // 首次初始化完成
+	OutcomeNoChanges                        // 无变更且已是最新
+	OutcomePushed                           // 直接推送成功（含新建远程分支）
+	OutcomeAutoMerged                       // rebase 自动合并成功
+	OutcomeConflictResolved                 // 冲突已按策略解决
+	OutcomeConflictAborted                  // abort 策略，未处理
+	OutcomeFailed                           // 错误
 )
 
 // String 返回 Outcome 的中文标签，用于日志与状态展示。
@@ -24,6 +26,10 @@ func (o Outcome) String() string {
 		return "已推送"
 	case OutcomeAutoMerged:
 		return "自动合并"
+	case OutcomeConflictResolved:
+		return "冲突已解决"
+	case OutcomeConflictAborted:
+		return "冲突已中止"
 	case OutcomeFailed:
 		return "失败"
 	default:

@@ -4,7 +4,9 @@
 package tests
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"autosync/internal/config"
@@ -21,6 +23,7 @@ func newConfig(repoDir, remoteURL string) *config.Config {
 		Remote:           "origin",
 		Branch:           "main",
 		ConflictStrategy: "local_wins",
+		BackupKeep:       10,
 		CommitMsgFormat:  "auto sync: {{.Timestamp}}",
 	}
 }
@@ -151,22 +154,123 @@ func TestSync_Diverged_AutoMerged(t *testing.T) {
 	}
 }
 
-// TestSync_Diverged_Conflict_Fails 验证双方改同一文件 → rebase 冲突 → 中止并返回失败（P2 行为）。
-func TestSync_Diverged_Conflict_Fails(t *testing.T) {
+// TestSync_Conflict_LocalWins 验证 local_wins：备份远程旧版本 + --force-with-lease 推送本地（US-006）。
+func TestSync_Conflict_LocalWins(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	commitFile(t, repo, "same.txt", "LOCAL")
+	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE")
+
+	result := newSyncer(t, newConfig(repo, remote)).Run()
+
+	if result.Outcome != sync.OutcomeConflictResolved {
+		t.Fatalf("Outcome = %s, 期望 ConflictResolved", result.Outcome)
+	}
+	if result.BackupBranch == "" {
+		t.Fatal("未返回备份分支名")
+	}
+	// 本地胜出：same.txt 仍为 LOCAL
+	if !fileContains(t, filepath.Join(repo, "same.txt"), "LOCAL") {
+		t.Errorf("local_wins 后本地 same.txt 应为 LOCAL")
+	}
+	// 远程被本地覆盖：远程 same.txt 应为 LOCAL
+	c := cloneRemote(t, remote)
+	if !fileContains(t, filepath.Join(c, "same.txt"), "LOCAL") {
+		t.Errorf("远程应被本地覆盖，same.txt 应为 LOCAL")
+	}
+	// 备份分支存在并保存远程旧版本（REMOTE）
+	if !remoteHasBranch(t, remote, result.BackupBranch) {
+		t.Errorf("备份分支 %s 未推送到远程", result.BackupBranch)
+	}
+	bc := cloneRemote(t, remote)
+	runGit(t, bc, "checkout", result.BackupBranch)
+	if !fileContains(t, filepath.Join(bc, "same.txt"), "REMOTE") {
+		t.Errorf("备份分支应保存远程旧版本（same.txt=REMOTE）")
+	}
+}
+
+// TestSync_Conflict_RemoteWins 验证 remote_wins：放弃本地，重置到远程（US-006）。
+func TestSync_Conflict_RemoteWins(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	commitFile(t, repo, "same.txt", "LOCAL")
+	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE")
+
+	cfg := newConfig(repo, remote)
+	cfg.ConflictStrategy = "remote_wins"
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeConflictResolved {
+		t.Fatalf("Outcome = %s, 期望 ConflictResolved", result.Outcome)
+	}
+	// 远程胜出：本地 same.txt 被重置为 REMOTE
+	if !fileContains(t, filepath.Join(repo, "same.txt"), "REMOTE") {
+		t.Errorf("remote_wins 后本地 same.txt 应为 REMOTE")
+	}
+}
+
+// TestSync_Conflict_Abort 验证 abort：不做变更，本地保留、远程不变（US-006）。
+func TestSync_Conflict_Abort(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	commitFile(t, repo, "same.txt", "LOCAL")
+	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE")
+
+	cfg := newConfig(repo, remote)
+	cfg.ConflictStrategy = "abort"
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeConflictAborted {
+		t.Fatalf("Outcome = %s, 期望 ConflictAborted", result.Outcome)
+	}
+	if !fileContains(t, filepath.Join(repo, "same.txt"), "LOCAL") {
+		t.Errorf("abort 后本地 same.txt 应仍为 LOCAL")
+	}
+	c := cloneRemote(t, remote)
+	if !fileContains(t, filepath.Join(c, "same.txt"), "REMOTE") {
+		t.Errorf("abort 后远程应仍为 REMOTE")
+	}
+	if inRebase(t, repo) {
+		t.Errorf("abort 后不应处于 rebase 状态")
+	}
+}
+
+// TestSync_BackupCleanup 验证 local_wins 后清理旧备份分支，保留最新 backup_keep 个（US-006）。
+func TestSync_BackupCleanup(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
 	addRemote(t, repo, "origin", remote)
 	pushToRemote(t, repo, "origin", "main")
 
-	commitFile(t, repo, "same.txt", "LOCAL")              // 本地改 same.txt
-	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE") // 远程改同文件不同内容
+	// 预创建 12 个备份分支（时间戳均早于当前）
+	for i := 1; i <= 12; i++ {
+		name := fmt.Sprintf("backup/remote-20260101_0000%02d", i)
+		runGit(t, repo, "branch", name, "origin/main")
+		runGit(t, repo, "push", "origin", name)
+	}
+
+	// 制造冲突触发 local_wins（再建 1 个备份，共 13，清理后留 10）
+	commitFile(t, repo, "same.txt", "LOCAL")
+	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE")
 
 	result := newSyncer(t, newConfig(repo, remote)).Run()
-
-	if result.Outcome != sync.OutcomeFailed {
-		t.Fatalf("Outcome = %s, 期望 Failed（P2 冲突未解决）", result.Outcome)
+	if result.Outcome != sync.OutcomeConflictResolved {
+		t.Fatalf("Outcome = %s, 期望 ConflictResolved", result.Outcome)
 	}
-	if inRebase(t, repo) {
-		t.Errorf("rebase 未被中止，仓库仍处于冲突状态")
+
+	c := cloneRemote(t, remote)
+	out := runGit(t, c, "branch", "-r")
+	count := strings.Count(out, "backup/remote-")
+	if count != 10 {
+		t.Errorf("备份分支数 = %d, 期望 10（清理后）\n%s", count, out)
+	}
+	if strings.Contains(out, "backup/remote-20260101_000001") {
+		t.Errorf("最早的备份 T01 应被清理")
 	}
 }

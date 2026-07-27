@@ -180,7 +180,7 @@ type GitOperator interface {
     PullRebase(remote, branch string) error
     RebaseAbort() error
     Push(remote, branch string) error
-    // —— 以下为 P3 冲突处理扩展 ——
+    // 冲突处理
     PushForce(remote, branch string) error          // 用 --force-with-lease（比 --force 安全）
     CreateBackupBranch(remote, branch, backupName string) error
     PushBranch(remote, branchName string) error

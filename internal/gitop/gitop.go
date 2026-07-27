@@ -37,6 +37,14 @@ type GitOperator interface {
 	PullRebase(remote, branch string) error
 	RebaseAbort() error
 	Push(remote, branch string) error
+	// 冲突处理（P3）
+	PushForce(remote, branch string) error                        // --force-with-lease
+	CreateBackupBranch(remote, branch, backupName string) error   // 从 remote/<branch> 建备份分支
+	PushBranch(remote, branchName string) error                   // 推送备份分支到远程
+	DeleteRemoteBranch(remote, branchName string) error           // 删除远程分支
+	DeleteLocalBranch(branchName string) error                    // 删除本地分支
+	ListBackupBranches(remote string) ([]string, error)           // 列出 backup/remote-*（本地+远程去重）
+	ResetHardToRemote(remote, branch string) error                // reset --hard + clean -fd
 }
 
 // execGit 通过 shell out 调用系统 git 实现 GitOperator。
@@ -176,6 +184,75 @@ func (g *execGit) RebaseAbort() error {
 // Push 推送本地分支到远程。
 func (g *execGit) Push(remote, branch string) error {
 	_, err := g.run("push", remote, branch)
+	return err
+}
+
+// PushForce 以 --force-with-lease 强制推送本地分支。
+// 比 --force 安全：若 fetch 后远程被他人改写，lease 检查失败会拒绝推送。
+func (g *execGit) PushForce(remote, branch string) error {
+	_, err := g.run("push", "--force-with-lease", remote, branch)
+	return err
+}
+
+// CreateBackupBranch 从远程分支创建本地备份分支（指向远程当前提交），用于 local_wins 备份。
+func (g *execGit) CreateBackupBranch(remote, branch, backupName string) error {
+	_, err := g.run("branch", backupName, remote+"/"+branch)
+	return err
+}
+
+// PushBranch 推送指定分支到远程（用于推送备份分支）。
+func (g *execGit) PushBranch(remote, branchName string) error {
+	_, err := g.run("push", remote, branchName)
+	return err
+}
+
+// DeleteRemoteBranch 删除远程分支。
+func (g *execGit) DeleteRemoteBranch(remote, branchName string) error {
+	_, err := g.run("push", remote, "--delete", branchName)
+	return err
+}
+
+// DeleteLocalBranch 删除本地分支（-D 强制，因备份分支通常未被合并）。
+func (g *execGit) DeleteLocalBranch(branchName string) error {
+	_, err := g.run("branch", "-D", branchName)
+	return err
+}
+
+// ListBackupBranches 列出 backup/remote-* 备份分支（本地+远程去重，去掉远程前缀）。
+func (g *execGit) ListBackupBranches(remote string) ([]string, error) {
+	localOut, err := g.run("for-each-ref", "--format=%(refname:short)", "refs/heads/backup/remote-*")
+	if err != nil {
+		return nil, err
+	}
+	remoteOut, err := g.run("for-each-ref", "--format=%(refname:short)", "refs/remotes/"+remote+"/backup/remote-*")
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool)
+	for _, line := range strings.Split(localOut, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			set[line] = true
+		}
+	}
+	prefix := remote + "/"
+	for _, line := range strings.Split(remoteOut, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			set[strings.TrimPrefix(line, prefix)] = true
+		}
+	}
+	result := make([]string, 0, len(set))
+	for b := range set {
+		result = append(result, b)
+	}
+	return result, nil
+}
+
+// ResetHardToRemote 重置本地到远程版本并清理未跟踪文件（remote_wins 策略）。
+func (g *execGit) ResetHardToRemote(remote, branch string) error {
+	if _, err := g.run("reset", "--hard", remote+"/"+branch); err != nil {
+		return err
+	}
+	_, err := g.run("clean", "-fd")
 	return err
 }
 

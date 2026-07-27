@@ -107,6 +107,15 @@ func (c *Config) applyDefaults() {
 // validate 校验必填项、目录存在性、策略合法性与时间间隔可解析性。
 // 校验通过时填充 IntervalDur / RetryBaseDelayDur 派生字段。
 func (c *Config) validate() error {
+	if err := c.validateRequired(); err != nil {
+		return err
+	}
+	return c.validateRepoDir()
+}
+
+// validateRequired 校验必填项、策略合法性与时间间隔可解析性（不检查 repo_dir 存在性）。
+// 供 LoadLenient 使用，使 status 等命令在仓库目录暂时不可用时仍能加载配置。
+func (c *Config) validateRequired() error {
 	if c.RepoDir == "" {
 		return fmt.Errorf("config: repo_dir 不能为空")
 	}
@@ -117,10 +126,6 @@ func (c *Config) validate() error {
 	case "local_wins", "remote_wins", "abort":
 	default:
 		return fmt.Errorf("config: conflict_strategy 非法 %q（需 local_wins|remote_wins|abort）", c.ConflictStrategy)
-	}
-	info, err := os.Stat(c.RepoDir)
-	if err != nil || !info.IsDir() {
-		return fmt.Errorf("config: repo_dir 不存在或非目录: %s", c.RepoDir)
 	}
 	dur, err := time.ParseDuration(c.Interval)
 	if err != nil {
@@ -133,6 +138,33 @@ func (c *Config) validate() error {
 	}
 	c.RetryBaseDelayDur = rdur
 	return nil
+}
+
+// validateRepoDir 校验 repo_dir 存在且为目录。
+func (c *Config) validateRepoDir() error {
+	info, err := os.Stat(c.RepoDir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("config: repo_dir 不存在或非目录: %s", c.RepoDir)
+	}
+	return nil
+}
+
+// LoadLenient 加载配置但不校验 repo_dir 存在性。
+// 供 status 等命令在仓库目录暂时不可用时仍能读取状态文件路径等配置。
+func LoadLenient(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("读取配置文件失败 %s: %w", path, err)
+	}
+	cfg := &Config{}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("解析配置文件失败: %w", err)
+	}
+	cfg.applyDefaults()
+	if err := cfg.validateRequired(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // ResolveLogFile 将日志文件名解析为绝对路径：相对路径基于二进制所在目录。

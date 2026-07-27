@@ -19,7 +19,7 @@
 | P4   | 调度与健壮性       | schtasks install/uninstall、单实例锁、重试、dry-run                             | US-011, dry-run                        | v1.0 |
 | P5   | 发布与跨平台       | 交叉编译、Makefile/build.ps1、README、v1.0 发布                                 | —                                     | v1.0 |
 
-**进度**：P1 ✅、P2 ✅（已推送 main，提交 `f8fec8f` / `01c5c3f`）；P3–P5 ⏳。
+**进度**：P1 ✅、P2 ✅、P3 ✅（已推送 main）；P4–P5 ⏳。
 
 依赖顺序：P1 → P2 → P3 → P4 → P5（严格线性，每阶段验收通过方可进入下一阶段）。
 
@@ -68,16 +68,17 @@
 **验收测试**
 
 - 自动化（门槛）
-  - [ ] 构造冲突：local_wins → 备份分支 `backup/remote-*` 存在且可 checkout 恢复 + `--force-with-lease` 成功（US-006）
-  - [ ] remote_wins → 本地被 reset --hard，未推送改动丢失（US-006）
-  - [ ] abort → 无仓库变更 + 退出码非零（US-006）
-  - [ ] backup 清理：创建 >N 个备份后仅保留最新 10 个（本地+远程）
-  - [ ] 通知策略单测：各 `Outcome` → 正确通知级别（成功静默 / 冲突警告 / 失败错误）
-  - [ ] `make test` 通过
+  - [x] 构造冲突：local_wins → 备份分支 `backup/remote-*` 存在且可 checkout 恢复 + `--force-with-lease` 成功（US-006）
+  - [x] remote_wins → 本地被 reset --hard，未推送改动丢失（US-006）
+  - [x] abort → 无仓库变更 + 退出码非零（US-006）
+  - [x] backup 清理：创建 >N 个备份后仅保留最新 10 个（本地+远程）
+  - [x] 通知策略单测：各 `Outcome` → 正确通知级别（成功静默 / 冲突警告 / 失败错误）
+  - [x] `make test` 通过
 - 手动
   - [ ] Windows 实测：冲突解决时弹出系统通知（含备份分支名），成功同步无通知
-  - [ ] `autosync status` 输出上次同步时间/结果
+  - [x] `autosync status` 输出上次同步时间/结果（冒烟验证）
 - 映射：US-006, US-008, status
+- ✅ **自动化已完成**（三策略 + 清理 + 通知策略 + state 测试）；⏳ Windows 通知实测待用户
 
 ### P4 · 调度与健壮性
 
