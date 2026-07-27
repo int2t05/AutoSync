@@ -196,3 +196,16 @@ func resolveBesideExe(name string) string {
 	}
 	return filepath.Join(filepath.Dir(exePath), name)
 }
+
+// Normalize 填充默认值并完整校验（含 repo_dir 存在性），填充派生字段。
+// 导出供 configstore 复用，避免多任务配置重复实现默认值与校验。
+func (c *Config) Normalize() error {
+	c.applyDefaults()
+	return c.validate()
+}
+
+// BesideExe 将文件名解析为基于二进制目录的绝对路径；已是绝对路径则原样返回。
+// 导出供 configstore 按任务名解析每任务的 state/lock 文件路径。
+func BesideExe(name string) string {
+	return resolveBesideExe(name)
+}
