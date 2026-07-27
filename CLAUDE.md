@@ -8,7 +8,7 @@
 
 在做任何实现/修改前，必须先：
 
-- **阅读设计文档**：[docs/prd.md](docs/prd.md)（需求）、[docs/tech.md](docs/tech.md)（系统设计）、[docs/flow.md](docs/flow.md)（业务流程）、[docs/api.md](docs/api.md)（命令接口）、[docs/TODO.md](docs/TODO.md)（不足与方向）。任何功能实现须能追溯到 prd 的 US 编号。
+- **阅读设计文档**：[docs/prd.md](docs/prd.md)（需求）、[docs/tech.md](docs/tech.md)（系统设计）、[docs/flow.md](docs/flow.md)（业务流程）、[docs/api.md](docs/api.md)（命令接口）、[docs/TODO.md](docs/TODO.md)（不足与方向）、[docs/plan.md](docs/plan.md)（开发计划）。任何功能实现须能追溯到 prd 的 US 编号与 plan 的里程碑。
 - **确认运行时**：Go 1.26+（本机位于 `D:\DevelopTools\go\bin\go.exe`，不在 PATH，需用全路径或导出 PATH）+ 系统 git 已安装。
 - **无必须前置加载的 Skill**。涉及测试/调试时可参考 `superpowers:test-driven-development`、`superpowers:systematic-debugging` 的思路，但**本项目的测试规则以本文档"开发边界"为准**（test/ 目录、禁止 mock、真实数据），与之冲突时以本文档为准。
 
@@ -69,7 +69,7 @@ make build-all   # 三平台交叉编译
 | `internal/lock` | 单实例锁（PID，跨平台）|
 | `internal/sched` | Scheduler 接口 + schtasks 实现 |
 | `test/` | **所有测试代码**（真实数据，禁止 mock）|
-| `docs/` | prd / tech / flow / api / TODO |
+| `docs/` | prd / tech / flow / api / TODO / plan |
 | `config.example.yaml` | 配置模板 |
 | `Makefile` / `build.ps1` | 构建 / 测试脚本 |
 
@@ -77,7 +77,7 @@ make build-all   # 三平台交叉编译
 
 ### 始终要做 (Always do)
 
-- 实现前先读 prd/tech/flow，功能须映射到 US 编号。
+- 实现前先读 prd/tech/plan，功能须映射到 US 编号与里程碑。
 - 每个 `.go` 文件加**文件头注释**（中文，说明职责与所属包）；每个关键函数加**函数注释**（中文，解释功能/参数/返回/错误语义，而非字面动作）。
 - 待完善处显式标注 `// TODO: <说明>`。
 - 测试统一写在 `test/` 目录，使用**真实数据**（临时文件 / 临时 git 仓库），禁止任何 mock / fake / stub 测试替身。
@@ -124,7 +124,7 @@ func Load(path string) (*Config, error) {
 
 ## 8. 资源
 
-- **设计文档**：[docs/prd.md](docs/prd.md) · [docs/tech.md](docs/tech.md) · [docs/flow.md](docs/flow.md) · [docs/api.md](docs/api.md) · [docs/TODO.md](docs/TODO.md)
+- **设计文档**：[docs/prd.md](docs/prd.md) · [docs/tech.md](docs/tech.md) · [docs/flow.md](docs/flow.md) · [docs/api.md](docs/api.md) · [docs/TODO.md](docs/TODO.md) · [docs/plan.md](docs/plan.md)
 - **配置模板**：`config.example.yaml`
 - **运行时**：Go 1.26+（`D:\DevelopTools\go\bin`）、系统 git、系统 git 凭证
 - **关键依赖**：`gopkg.in/yaml.v3`、`gen2brain/beeep`

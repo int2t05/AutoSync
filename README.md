@@ -53,16 +53,15 @@ Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git�
 
 ## 文档
 
-[prd](docs/prd.md) · [tech](docs/tech.md) · [api](docs/api.md) · [flow](docs/flow.md) · [TODO](docs/TODO.md)
+[prd](docs/prd.md) · [tech](docs/tech.md) · [api](docs/api.md) · [flow](docs/flow.md) · [TODO](docs/TODO.md) · [plan](docs/plan.md)
 
 ## 路线图
 
-- **跨平台调度自安装**：launchd（macOS）/ cron（Linux）原生支持
-- **实时同步**：daemon 模式 + 文件监听，亚分钟级延迟
-- **多文件夹**：单进程多任务管理
-- **易用性**：HTTPS token 引导、连续失败降噪、托盘状态可视化
+**V1.1（进行中）**：托盘守护应用 — 双击启动、GUI 多任务配置、后台定时同步、右键手动同步、开机自启。详见 [plan](docs/plan.md)。
 
-完整不足与方向见 [docs/TODO.md](docs/TODO.md)。
+**后续**：macOS/Linux 托盘自启、实时文件监听、HTTPS token 引导、连续失败降噪。
+
+完整方向见 [docs/TODO.md](docs/TODO.md)。
 
 ## License
 

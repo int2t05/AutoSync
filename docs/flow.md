@@ -92,3 +92,26 @@ flowchart TD
 ## 备份清理
 
 `ListBackupBranches` 收集本地 `refs/heads/backup/remote-*` 与远程 `refs/remotes/<remote>/backup/remote-*`，去远程前缀合并去重；按分支名内时间戳降序排序，保留前 `backup_keep` 个，其余 `branch -D`（本地）+ `push --delete`（远程）。
+
+## V1.1 托盘守护流程
+
+```mermaid
+flowchart TD
+  START([双击 / 自启]) --> LOCK{单实例锁?}
+  LOCK -->|否| EXIT([已运行，退出])
+  LOCK -->|是| LOAD[加载 autosync.conf.yaml<br/>多任务]
+  LOAD --> TRAY[启动托盘 + 配置窗口]
+  TRAY --> SCHED[TaskScheduler 每任务 ticker]
+  SCHED --> TICK{每任务 interval 到}
+  TICK --> RUN[TaskRunner 执行该任务<br/>复用 sync 状态机]
+  RUN --> UPDATE[更新该任务 state + 托盘状态]
+  TRAY -->|右键手动| RUNM[立即执行指定任务]
+  TRAY -->|编辑| SAVE[ConfigStore 持久化 + 热重载]
+```
+
+**数据流**
+
+- **启动**：`autosync.conf.yaml` 加载任务列表 → 每任务按 interval 起 ticker → 到点调 TaskRunner → TaskRunner 构造 Syncer 执行 V1.0 同步状态机（见上）→ 结果写该任务 state + 通知 + 回显托盘。
+- **手动同步**：托盘菜单选任务 → 立即调 TaskRunner（与定时同路径，单实例锁保护单仓库不并发）。
+- **配置变更**：窗口编辑 → 保存 `autosync.conf.yaml` → 热重载该任务 ticker（无需重启）。
+- **自启**：注册表 Run 键 → 登录后系统拉起 `autosync`（无参数）→ 托盘守护。

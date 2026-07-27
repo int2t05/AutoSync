@@ -13,26 +13,32 @@
 | 通知不分级 | 信息/警告/错误图标一致 | beeep 投递统一默认图标 |
 | 连续失败无降噪 | 持续失败会重复通知 | `ConsecutiveFailures` 字段已预留未启用 |
 
-## 未来方向
+## V1.1 进行中：托盘守护
+
+V1.1 将 CLI 一次性工具升级为托盘常驻守护应用（方案 A）。详见 [plan.md](plan.md)。
+
+- **托盘守护**：Fyne 托盘 + 配置窗口，内置 ticker 定时同步（取代 schtasks）。
+- **多文件夹**：`autosync.conf.yaml` 多任务，每任务独立 state/lock。
+- **开机自启**：注册表 Run 键（`install`/`uninstall` 新语义）。
+- **右键手动同步**：托盘菜单对指定任务立即触发。
+- **CLI 保留**：`sync`/`status` 供脚本/无头。
+
+## 后续方向
 
 ```mermaid
 flowchart LR
-  NOW[当前: Windows 完整可用] --> A[macOS/Linux 调度自安装]
-  NOW --> B[daemon 模式 / 亚分钟级]
-  NOW --> C[多文件夹]
-  NOW --> D[HTTPS token 引导]
-  NOW --> E[连续失败降噪]
-  NOW --> F[backup 清理增强]
-  NOW --> G[托盘应用]
+  NOW[V1.1: 托盘守护] --> A[macOS/Linux 托盘自启]
+  NOW --> B[实时文件监听]
+  NOW --> C[HTTPS token 引导]
+  NOW --> D[连续失败降噪]
+  NOW --> E[backup 清理增强]
 ```
 
-- **macOS/Linux 调度自安装**：launchd plist / cron 实现 `Scheduler.Install`。
-- **daemon 模式**：内置 ticker 长驻，支持亚分钟级间隔与实时性。
-- **多文件夹**：单进程多任务或多实例配置管理。
+- **macOS/Linux 托盘自启**：launchd plist / cron 实现非 Windows 自启。
+- **实时文件监听**：inotify/FSEvents 替代轮询，亚分钟级延迟。
 - **HTTPS token 引导**：降低 SSH 凭证配置门槛。
 - **连续失败降噪**：启用 `ConsecutiveFailures`，指数退避告警。
 - **backup 清理增强**：按时间过期、跨设备协调。
-- **托盘应用**：常驻托盘 + 状态可视化。
 
 ## 代码 TODO 清单
 

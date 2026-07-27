@@ -84,6 +84,29 @@ test/              全部测试（真实 git 临时仓库，禁止 mock）
 
 核心逻辑跨平台；平台差异用构建标签隔离（`//go:build windows` / `!windows`）。`pidAlive`、`Scheduler` 按平台分文件实现。路径用 `filepath`，不硬编码分隔符。
 
+## V1.1 架构：托盘守护
+
+V1.1 在 V1.0 引擎之上加托盘守护层，引擎（Syncer / gitop / notify / state / lock）进程内复用，不启子进程。
+
+```mermaid
+flowchart TB
+  EXE[autosync.exe 无参数] --> APP[TrayApp Fyne]
+  APP --> WIN[配置窗口<br/>任务列表 CRUD]
+  APP --> ICON[托盘图标 + 菜单]
+  APP --> SCHED[TaskScheduler<br/>每任务 ticker]
+  SCHED --> RUN[TaskRunner]
+  RUN --> SYNC[Syncer 复用]
+  SYNC --> GITOP[gitop 复用]
+  RUN --> STATE[state 每任务] & NOTIFY[notify 复用]
+  AUTO[注册表 Run 键] -->|登录自启| APP
+```
+
+- **进程模型**：无参数启动 = 托盘守护（常驻 + 内置 ticker）；`autosync sync` = 一次性 CLI（脚本 / 无头）。单实例锁防多开。
+- **多任务**：`autosync.conf.yaml` 的 `tasks: [...]`，每任务独立 state（`autosync.state-<name>.json`）与 lock。旧单配置无 `tasks` 视为单任务（向后兼容）。
+- **GUI**：Fyne（纯 Go，窗口 + 托盘一体，跨平台）。
+- **自启**：`install` / `uninstall` 改为注册表 `HKCU\...\Run` 键开关（替代 schtasks）。非 Windows 留 stub。
+- **托盘菜单**：各任务手动同步 / 暂停、打开配置、状态、开机自启开关、退出。
+
 ## 测试策略
 
 - 全部测试在 `test/` 目录，包名 `tests`。

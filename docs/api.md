@@ -125,6 +125,25 @@ $ autosync uninstall
 ```
 退出码 `0`。
 
+## V1.1 托盘模式
+
+无参数启动托盘守护进程（Fyne 窗口 + 托盘 + 内置定时器）。
+
+```
+autosync                      # 启动托盘守护
+```
+
+- 配置窗口：任务列表增删改，每任务 repo_dir / remote_url / branch / interval / conflict_strategy 等。
+- 托盘菜单：各任务手动同步 / 暂停、打开配置、状态、开机自启开关、退出。
+- 多任务配置：`autosync.conf.yaml` 的 `tasks: [...]`。
+
+**install / uninstall 语义变更**：V1.1 改为注册表 `HKCU\...\Run` 键开关（登录自启托盘守护），替代 V1.0 的 schtasks 定时任务。
+
+```
+autosync install              # 写注册表 Run 键，开机自启托盘
+autosync uninstall            # 移除自启
+```
+
 ## 配置文件
 
 | 字段 | 必填 | 默认 | 说明 |
