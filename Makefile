@@ -27,9 +27,10 @@ build:
 	$(GO) build -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
 	$(GO) build -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
 
-# 三平台交叉编译验证
+# 三平台交叉编译验证（4 目标：Windows 控制台+静默 / macOS / Linux）
 build-all:
 	$(GO) build -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
+	$(GO) build -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
 	GOOS=darwin GOARCH=amd64 $(GO) build -o autosync-darwin ./cmd/autosync
 	GOOS=linux  GOARCH=amd64 $(GO) build -o autosync-linux ./cmd/autosync
 

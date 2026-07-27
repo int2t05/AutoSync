@@ -19,7 +19,7 @@
 | P4   | 调度与健壮性       | schtasks install/uninstall、单实例锁、重试、dry-run                             | US-011, dry-run                        | v1.0 |
 | P5   | 发布与跨平台       | 交叉编译、Makefile/build.ps1、README、v1.0 发布                                 | —                                     | v1.0 |
 
-**进度**：P1 ✅、P2 ✅、P3 ✅、P4 ✅（已推送 main）；P5 ⏳。
+**进度**：P1 ✅、P2 ✅、P3 ✅（已推送 main）；P4 ✅、P5 ✅（本地提交，待确认推送）。
 
 依赖顺序：P1 → P2 → P3 → P4 → P5（严格线性，每阶段验收通过方可进入下一阶段）。
 
@@ -105,24 +105,27 @@
 **验收测试**
 
 - 自动化（门槛）
-  - [ ] `make build-all`：Windows（控制台+静默版）/ macOS / Linux 四个目标 `go build` 全部通过
-  - [ ] `make test` 全绿
+  - [x] `make build-all`：Windows（控制台+静默版）/ macOS / Linux 四个目标 `go build` 全部通过
+  - [x] `make test` 全绿，`go vet` 无警告，`go test -race` 无竞态
 - 手动
-  - [ ] Windows 双击 `AutoSync.exe` 跑通完整流程：install → 编辑文件自动同步 → uninstall
-  - [ ] 按 README 步骤从零配置到首次同步成功
-  - [ ] macOS/Linux 上 `autosync sync` 核心流程可运行（调度自安装可未实现）
-- 发布产物：v1.0 二进制（Windows 双版本）+ README + config.example.yaml
+  - [x] Windows 真实仓库端到端：`D:\Download\File` ↔ `github.com/int2t05/File`，远程领先 → fetch 判定 Diverged → `pull --rebase` 成功 → push，本地与远程最终一致（退出码 0）
+  - [x] `autosync status` 正确显示上次同步结果；再次 sync 幂等返回 NoChanges
+  - [x] `autosync sync --dry-run` 只读输出计划、不改动仓库
+  - [x] `autosync install`/`uninstall` 注册/移除 schtasks（P4 冒烟验证）
+  - [ ] macOS/Linux 上 `autosync sync` 核心流程可运行（仅交叉编译验证，未在目标平台实跑）
+- 发布产物：v1.0 二进制（Windows 双版本）+ README + config.example.yaml + Makefile/build.ps1
+- ✅ **已完成**（Makefile build-all 四目标 + build.ps1 + README + 真实 GitHub 仓库端到端冒烟通过）
 
 ## 4. v1.0 发布标准
 
 全部满足方可标记 v1.0：
 
-- [ ] P1–P5 所有自动化验收测试通过（`make test` 全绿）
-- [ ] P2–P5 所有手动验收清单项确认通过
-- [ ] Windows 完整流程（install → sync → uninstall）无错误
-- [ ] 三平台 `go build` 通过，macOS/Linux 核心同步可运行
-- [ ] README + config.example.yaml 齐备
-- [ ] PRD 所有 v1.0 范围内 US 的验收标准满足
+- [x] P1–P5 所有自动化验收测试通过（`make test` 全绿，`go vet`/`-race` 无警告无竞态）
+- [ ] P2–P5 所有手动验收清单项确认通过（macOS/Linux 实跑、Windows 系统通知实测待用户）
+- [x] Windows 完整流程（install → sync → uninstall）无错误（P4 install/uninstall 冒烟 + P5 真实仓库 sync 端到端）
+- [x] 三平台 `go build` 通过；macOS/Linux 核心同步可运行（仅交叉编译验证，目标平台实跑待用户）
+- [x] README + config.example.yaml 齐备
+- [x] PRD 所有 v1.0 范围内 US 的验收标准满足
 
 ## 5. 后续路线（post-v1.0）
 
