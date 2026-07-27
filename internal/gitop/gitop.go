@@ -23,6 +23,21 @@ const (
 	RelDiverged                   // 真正分叉（双方各有独立提交），需 rebase
 )
 
+// String 返回 Relation 的标签，用于 dry-run 计划与日志。
+func (r Relation) String() string {
+	switch r {
+	case RelUpToDate:
+		return "UpToDate"
+	case RelLocalAhead:
+		return "LocalAhead"
+	case RelRemoteAhead:
+		return "RemoteAhead"
+	case RelDiverged:
+		return "Diverged"
+	}
+	return "Unknown"
+}
+
 // GitOperator 是同步引擎依赖的 git 操作抽象。
 // P2 仅含主路径方法；冲突处理（force push / 备份分支 / reset）方法在 P3 扩展。
 type GitOperator interface {

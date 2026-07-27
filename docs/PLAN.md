@@ -19,7 +19,7 @@
 | P4   | 调度与健壮性       | schtasks install/uninstall、单实例锁、重试、dry-run                             | US-011, dry-run                        | v1.0 |
 | P5   | 发布与跨平台       | 交叉编译、Makefile/build.ps1、README、v1.0 发布                                 | —                                     | v1.0 |
 
-**进度**：P1 ✅、P2 ✅、P3 ✅（已推送 main）；P4–P5 ⏳。
+**进度**：P1 ✅、P2 ✅、P3 ✅、P4 ✅（已推送 main）；P5 ⏳。
 
 依赖顺序：P1 → P2 → P3 → P4 → P5（严格线性，每阶段验收通过方可进入下一阶段）。
 
@@ -87,15 +87,16 @@
 **验收测试**
 
 - 自动化（门槛）
-  - [ ] 重试单测：前 2 次失败、第 3 次成功 → 最终成功；3 次全失败 → 判定失败
-  - [ ] dry-run 集成测试：输出计划（将提交/分叉/策略），仓库无任何 commit/push/分支变更
-  - [ ] 锁单测：第二个实例启动 → 静默跳过（不并发执行）
-  - [ ] `make test` 通过
+  - [x] 重试单测：前 2 次失败、第 3 次成功 → 最终成功；3 次全失败 → 判定失败
+  - [x] dry-run 集成测试：输出计划（将提交/分叉/策略），仓库无任何 commit/push/分支变更
+  - [x] 锁单测：第二个实例启动 → 静默跳过（不并发执行）；陈旧锁/损坏锁 → 接管
+  - [x] `make test` 通过，`go vet` 无警告，`go test -race` 无竞态
 - 手动
-  - [ ] `autosync install` → `schtasks /Query /tn AutoSync` 可见，按 interval 触发
-  - [ ] `autosync uninstall` → 任务移除
-  - [ ] `autosync sync --dry-run` 输出计划、不改动仓库
+  - [x] `autosync install` → `schtasks /Query /tn AutoSync` 可见，按 interval 触发（冒烟验证）
+  - [x] `autosync uninstall` → 任务移除（冒烟验证）
+  - [x] `autosync sync --dry-run` 输出计划、不改动仓库（冒烟验证）
 - 映射：US-011, dry-run
+- ✅ **已完成**（lock/sched/retry/dry-run 装配 + 参数与集成测试；go build/test/vet/-race 全绿 + schtasks/dry-run/锁释放冒烟通过）
 
 ### P5 · 发布与跨平台
 

@@ -179,6 +179,11 @@ func (c *Config) ResolveStateFile() string {
 	return resolveBesideExe(c.StateFile)
 }
 
+// ResolveLockFile 返回单实例锁文件路径（二进制同目录的 autosync.lock）。
+func (c *Config) ResolveLockFile() string {
+	return resolveBesideExe("autosync.lock")
+}
+
 // resolveBesideExe 将文件名解析为基于二进制目录的绝对路径；已是绝对路径则原样返回。
 // 获取二进制路径失败时退化为原文件名（由调用方按工作目录解析）。
 func resolveBesideExe(name string) string {

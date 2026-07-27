@@ -1,6 +1,5 @@
 // main.go 是 AutoSync 的入口，负责 CLI 分发与依赖装配。
-// 当前（P3）：sync（默认）执行同步并按策略通知/持久化状态；status 读取上次同步状态。
-// install/uninstall/dry-run 在 P4 实现。
+// P4：sync 支持 --dry-run 只读预览与单实例锁；install/uninstall 通过 schtasks 自安装调度。
 package main
 
 import (
@@ -13,8 +12,10 @@ import (
 	"autosync/internal/config"
 	"autosync/internal/gitignore"
 	"autosync/internal/gitop"
+	"autosync/internal/lock"
 	"autosync/internal/log"
 	"autosync/internal/notify"
+	"autosync/internal/sched"
 	"autosync/internal/state"
 	"autosync/internal/sync"
 )
@@ -29,10 +30,10 @@ func run(args []string) int {
 	switch cmd {
 	case "status":
 		return runStatus(rest)
-	case "install", "uninstall":
-		// TODO: P4 实现 schtasks 自安装
-		fmt.Fprintf(os.Stderr, "❌ %s 子命令待 P4 实现\n", cmd)
-		return 1
+	case "install":
+		return runInstall(rest)
+	case "uninstall":
+		return runUninstall()
 	default:
 		return runSync(rest)
 	}
@@ -49,10 +50,12 @@ func parseCommand(args []string) (cmd string, rest []string) {
 	return "sync", args
 }
 
-// runSync 执行单次同步：加载配置 → 日志 → .gitignore → 同步 → 持久化状态 → 通知。
+// runSync 执行单次同步：加载配置 → 日志 → .gitignore → 加锁 → 同步 → 持久化状态 → 通知。
+// --dry-run 时只输出同步计划，不联网、不写盘、不加锁。
 func runSync(rest []string) int {
 	fs := flag.NewFlagSet("autosync", flag.ContinueOnError)
 	configPath := fs.String("config", "", "配置文件路径（默认为可执行文件同目录的 config.yaml）")
+	dryRun := fs.Bool("dry-run", false, "只读预览同步计划，不实际执行")
 	if err := fs.Parse(rest); err != nil {
 		return 1
 	}
@@ -73,6 +76,25 @@ func runSync(rest []string) int {
 	logger.Info(fmt.Sprintf("AutoSync 启动 | 目录=%s | 远程=%s | 分支=%s | 策略=%s | 间隔=%s",
 		cfg.RepoDir, cfg.RemoteURL, cfg.Branch, cfg.ConflictStrategy, cfg.Interval))
 
+	// 构造 git 操作器：execGit + 重试装饰器（网络操作指数退避）
+	gitOp := gitop.NewRetryGit(
+		gitop.NewExecGit(cfg.RepoDir, logger),
+		cfg.RetryCount, cfg.RetryBaseDelayDur, logger,
+	)
+	syncer := sync.NewSyncer(cfg, gitOp, logger)
+
+	// --dry-run：只读分析，不写盘不加锁
+	if *dryRun {
+		plan := syncer.DryRun()
+		fmt.Println("AutoSync 同步计划（dry-run，不实际执行）")
+		fmt.Println("────────────────────────────────")
+		for i, step := range plan.Steps {
+			fmt.Printf("%d. %s\n", i+1, step)
+		}
+		logger.Info("dry-run 完成")
+		return 0
+	}
+
 	// 维护 .gitignore：仅追加缺失条目（US-010）
 	gitignorePath := filepath.Join(cfg.RepoDir, ".gitignore")
 	if added, err := gitignore.Ensure(gitignorePath, cfg.Ignore); err != nil {
@@ -81,9 +103,15 @@ func runSync(rest []string) int {
 		logger.Info(fmt.Sprintf("已向 .gitignore 追加 %d 条", added))
 	}
 
-	// 构造 git 操作器与同步器，执行单次同步
-	gitOp := gitop.NewExecGit(cfg.RepoDir, logger)
-	syncer := sync.NewSyncer(cfg, gitOp, logger)
+	// 单实例锁：防止间隔内并发执行破坏仓库；被存活实例持有时静默跳过
+	locker := lock.New(cfg.ResolveLockFile())
+	acquired, release := locker.Acquire()
+	if !acquired {
+		logger.Info("已有同步实例在运行，跳过本次")
+		return 0
+	}
+	defer release()
+
 	result := syncer.Run()
 
 	// 持久化状态（供 status 命令读取）
@@ -111,7 +139,47 @@ func runSync(rest []string) int {
 		return 1
 	}
 	logger.Info(fmt.Sprintf("同步完成: %s — %s", result.Outcome, result.Message))
-	// TODO: P4 支持 --dry-run 预览
+	return 0
+}
+
+// runInstall 注册系统定时任务，按配置间隔触发 `autosync sync --config <配置>`。
+// 用宽松加载：允许在仓库目录尚未初始化时安装调度。
+func runInstall(rest []string) int {
+	fs := flag.NewFlagSet("autosync install", flag.ContinueOnError)
+	configPath := fs.String("config", "", "配置文件路径")
+	if err := fs.Parse(rest); err != nil {
+		return 1
+	}
+
+	cfg, err := config.LoadLenient(resolveConfigPath(*configPath))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
+		return 1
+	}
+
+	binPath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 获取可执行文件路径失败: %v\n", err)
+		return 1
+	}
+	resolvedConfig := resolveConfigPath(*configPath)
+
+	if err := sched.NewScheduler().Install(binPath, resolvedConfig, cfg.IntervalDur); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 安装调度失败: %v\n", err)
+		return 1
+	}
+	fmt.Printf("✅ 已安装定时任务 %s：每 %s 执行一次\n", sched.TaskName, cfg.Interval)
+	fmt.Printf("   命令: \"%s\" sync --config \"%s\"\n", binPath, resolvedConfig)
+	return 0
+}
+
+// runUninstall 移除系统定时任务。
+func runUninstall() int {
+	if err := sched.NewScheduler().Uninstall(); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 移除调度失败: %v\n", err)
+		return 1
+	}
+	fmt.Printf("✅ 已移除定时任务 %s\n", sched.TaskName)
 	return 0
 }
 

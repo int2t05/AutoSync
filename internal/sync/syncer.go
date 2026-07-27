@@ -195,6 +195,53 @@ func (s *Syncer) cleanupBackups() {
 	}
 }
 
+// DryRunPlan 是 dry-run 的只读分析结果。
+type DryRunPlan struct {
+	Steps []string // 计划步骤
+}
+
+// DryRun 执行只读分析，输出同步计划而不改动仓库。
+// 跳过 fetch 与所有写操作，基于本地状态与已有远程引用判定关系。
+// 无法预判 rebase 是否冲突（需实际写操作），仅提示将使用的冲突策略。
+func (s *Syncer) DryRun() DryRunPlan {
+	var steps []string
+	if !s.git.IsRepo() {
+		steps = append(steps, "首次运行：将初始化仓库（git init -b + remote add + 首次提交 + push -u）")
+		return DryRunPlan{Steps: steps}
+	}
+	hasChanges, err := s.git.HasChanges()
+	if err != nil {
+		return DryRunPlan{Steps: []string{"检查变更失败: " + err.Error()}}
+	}
+	if hasChanges {
+		steps = append(steps, "将提交本地变更（git add -A + commit）")
+	} else {
+		steps = append(steps, "本地无新变更")
+	}
+	// 跳过 fetch（dry-run 不联网），基于已有远程引用判定
+	exists, err := s.git.RemoteBranchExists(s.cfg.Remote, s.cfg.Branch)
+	if err != nil {
+		return DryRunPlan{Steps: append(steps, "检查远程分支失败: "+err.Error())}
+	}
+	if !exists {
+		steps = append(steps, fmt.Sprintf("远程分支 %s/%s 不存在：将直接 push（新建远程分支）", s.cfg.Remote, s.cfg.Branch))
+		return DryRunPlan{Steps: steps}
+	}
+	rel, err := s.git.RelationTo(s.cfg.Remote, s.cfg.Branch)
+	if err != nil {
+		return DryRunPlan{Steps: append(steps, "检查关系失败: "+err.Error())}
+	}
+	switch rel {
+	case gitop.RelUpToDate:
+		steps = append(steps, "本地与远程一致（UpToDate）：无需推送")
+	case gitop.RelLocalAhead:
+		steps = append(steps, "本地领先（LocalAhead）：将 push（快进）")
+	case gitop.RelRemoteAhead, gitop.RelDiverged:
+		steps = append(steps, fmt.Sprintf("远程有新提交（%s）：将 pull --rebase；若冲突，按 %s 策略处理", rel, s.cfg.ConflictStrategy))
+	}
+	return DryRunPlan{Steps: steps}
+}
+
 // formatCommitMsg 渲染提交消息模板，当前支持 {{.Timestamp}} 占位符。
 // TODO: 支持完整 Go 模板语法与更多变量（变更文件数等）
 func formatCommitMsg(format string) string {

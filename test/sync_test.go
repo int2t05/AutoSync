@@ -274,3 +274,35 @@ func TestSync_BackupCleanup(t *testing.T) {
 		t.Errorf("最早的备份 T01 应被清理")
 	}
 }
+
+// TestSync_DryRun_ReadOnly 验证 dry-run 只读：报告计划但不提交、不推送（US-012）。
+// UpToDate 状态下制造未提交变更，断言 HEAD 与远程均未改变，且计划提示将提交。
+func TestSync_DryRun_ReadOnly(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main") // 本地与远程一致
+
+	beforeHEAD := headShort(t, repo)
+	beforeRemote := remoteHeadCount(t, remote)
+	writeFile(t, repo, "uncommitted.txt", "x") // 本地未提交变更
+
+	plan := newSyncer(t, newConfig(repo, remote)).DryRun()
+
+	// HEAD 未移动（dry-run 不提交）
+	if after := headShort(t, repo); after != beforeHEAD {
+		t.Errorf("dry-run 不应提交，HEAD 变化 %s → %s", beforeHEAD, after)
+	}
+	// 远程未变（dry-run 不推送）
+	if after := remoteHeadCount(t, remote); after != beforeRemote {
+		t.Errorf("dry-run 不应推送，远程提交数变化 %d → %d", beforeRemote, after)
+	}
+	// 计划应提示有变更待提交，且判定与远程一致无需推送
+	joined := strings.Join(plan.Steps, "\n")
+	if !strings.Contains(joined, "将提交本地变更") {
+		t.Errorf("计划应提示将提交本地变更\n%s", joined)
+	}
+	if !strings.Contains(joined, "UpToDate") {
+		t.Errorf("计划应判定为 UpToDate\n%s", joined)
+	}
+}
