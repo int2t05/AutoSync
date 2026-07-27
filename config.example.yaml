@@ -1,0 +1,51 @@
+# AutoSync 配置模板 —— 复制为 config.yaml 并按实际填写
+# config.yaml 与二进制放同一目录（可用 --config 覆盖路径）
+
+# 同步目标文件夹（必填）
+repo_dir: "D:\\MySyncFolder"
+
+# 远程仓库地址，首次初始化时使用（必填）
+remote_url: "git@github.com:yourname/your-repo.git"
+
+# 远程名（默认 origin）
+remote: "origin"
+
+# 同步分支（默认 main）
+branch: "main"
+
+# 轮询间隔（默认 1m，最小粒度受 OS 调度器限制为 1 分钟）
+interval: "1m"
+
+# 冲突策略：local_wins | remote_wins | abort（默认 local_wins）
+conflict_strategy: "local_wins"
+
+# backup 分支保留数，超出的旧备份自动清理（默认 10）
+backup_keep: 10
+
+# 网络操作重试次数（默认 3）
+retry_count: 3
+
+# 重试退避基数（默认 1s，按 1s/2s/4s 指数退避）
+retry_base_delay: "1s"
+
+# 提交消息模板（默认 "auto sync: {{.Timestamp}}"）
+commit_msg_format: "auto sync: {{.Timestamp}}"
+
+# 日志文件名（默认 autosync.log，相对路径基于二进制目录）
+log_file: "autosync.log"
+
+# 状态文件名（默认 autosync.state.json，供 status 命令读取）
+state_file: "autosync.state.json"
+
+# 是否输出到控制台（false = 仅文件）
+show_console: false
+
+# 自动写入 repo_dir/.gitignore 的条目（仅追加，不覆盖已有）
+ignore:
+  - "*.tmp"
+  - "Thumbs.db"
+  - "desktop.ini"
+  - ".DS_Store"
+  - "autosync.log"
+  - "autosync.state.json"
+  - "config.yaml"

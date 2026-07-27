@@ -1,0 +1,18 @@
+# 构建产物
+*.exe
+*.test
+*.out
+/AutoSync
+/AutoSync_Silent
+/autosync-darwin
+/autosync-linux
+
+# 日志与状态文件
+autosync.log
+autosync.state.json
+
+# 本地配置（可能含敏感信息；保留 config.example.yaml 作模板）
+config.yaml
+
+# Go
+/vendor/
