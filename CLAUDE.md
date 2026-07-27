@@ -86,6 +86,7 @@ make build-all   # 三平台交叉编译
 - git 命令统一设 `GIT_TERMINAL_PROMPT=0`、`GIT_MERGE_AUTOEDIT=no`，避免交互阻塞。
 - force push 用 `--force-with-lease` 而非 `--force`。
 - 提交前运行 `go build` + `go test` + `go vet` 确认全绿。
+- 代码提交直接到 `main` 分支，不创建功能分支（用户偏好）；每次 push 须为可运行版本。
 
 ### 绝不要做 (Never do)
 

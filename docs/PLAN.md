@@ -19,6 +19,8 @@
 | P4   | 调度与健壮性       | schtasks install/uninstall、单实例锁、重试、dry-run                             | US-011, dry-run                        | v1.0 |
 | P5   | 发布与跨平台       | 交叉编译、Makefile/build.ps1、README、v1.0 发布                                 | —                                     | v1.0 |
 
+**进度**：P1 ✅、P2 ✅（已推送 main，提交 `f8fec8f` / `01c5c3f`）；P3–P5 ⏳。
+
 依赖顺序：P1 → P2 → P3 → P4 → P5（严格线性，每阶段验收通过方可进入下一阶段）。
 
 ## 3. 各里程碑详述
@@ -30,32 +32,34 @@
 **验收测试**
 
 - 自动化（门槛）
-  - [ ] config 缺失必填项 / 非法策略 / 目录不存在 → 退出码 1（单测）
-  - [ ] 可选项默认值正确（remote=origin, branch=main, interval=1m, conflict_strategy=local_wins）（单测）
-  - [ ] `--config` 路径覆盖生效（单测）
-  - [ ] Logger 分级写入文件+控制台、并发安全（单测）
-  - [ ] `.gitignore` 追加缺失条目、不重复追加（单测）
-  - [ ] `make test` 通过，`go vet` 无警告
+  - [x] config 缺失必填项 / 非法策略 / 目录不存在 → 退出码 1（单测）
+  - [x] 可选项默认值正确（remote=origin, branch=main, interval=1m, conflict_strategy=local_wins）（单测）
+  - [x] `--config` 路径覆盖生效（单测）
+  - [x] Logger 分级写入文件+控制台、并发安全（单测）
+  - [x] `.gitignore` 追加缺失条目、不重复追加（单测）
+  - [x] `make test` 通过，`go vet` 无警告
 - 手动：无
 - 映射：US-001, US-009, US-010
+- ✅ **已完成**（提交 `f8fec8f`；go build/test/vet/-race 全绿 + 冒烟通过）
 
 ### P2 · 核心同步引擎
 
-**范围**：`GitOperator` 接口 + `execGit` 实现 + `fakeGit` 测试桩；`Syncer` 状态机主路径（S1→S5→S9）；临时仓库集成测试夹具。
+**范围**：`GitOperator` 接口 + `execGit` 实现；`Syncer` 状态机主路径（init/commit/fetch/RelationTo/rebase/push）；真实 git 临时仓库集成测试夹具（禁止 mock）。
 
 **验收测试**
 
-- 自动化（门槛，集成测试用临时 git 仓库 + `file://` remote）
-  - [ ] 首次运行（无 `.git`）→ init + 首次 push（US-002）
-  - [ ] 有本地变更 → add + commit + push；无变更 → 跳过提交（US-003）
-  - [ ] fetch 后远程分支不存在 → 直接 push；存在 → merge-base 正确判定分叉（US-004）
-  - [ ] 分叉 + rebase 成功 → push，记 AutoMerged（US-005）
-  - [ ] 无分叉 → push，记 Pushed（US-007）
-  - [ ] `make test` 通过
+- 自动化（门槛，集成测试用临时 git 仓库 + 本地裸 remote，禁止 mock）
+  - [x] 首次运行（无 `.git`）→ init + 首次 push（US-002）
+  - [x] 有本地变更 → add + commit + push；无变更 → 跳过提交（US-003）
+  - [x] fetch 后远程分支不存在 → 直接 push；存在 → RelationTo 判定关系四态（US-004）
+  - [x] RemoteAhead/Diverged + rebase 成功 → push，记 AutoMerged（US-005）
+  - [x] LocalAhead → push，记 Pushed（US-007）
+  - [x] `make test` 通过
 - 手动
   - [ ] 真实 GitHub 仓库：本地新建文件 → `autosync sync` → 远程可见
   - [ ] 远程改文件 → 本地 `autosync sync` → 本地拉到改动
 - 映射：US-002, US-003, US-004, US-005, US-007
+- ✅ **自动化已完成**（提交 `01c5c3f`，含冲突失败路径用例）；⏳ 手动 GitHub 验收待用户
 
 ### P3 · 冲突处理与可观测性
 
@@ -136,3 +140,20 @@
 - **手动清单**：平台相关（schtasks、系统通知、真实 GitHub、双击运行）项列出手动验证步骤，由开发者执行并勾选
 - **可追溯**：每条验收测试标注映射的 PRD US 编号，确保需求→设计→计划三文档一致
 - **回归**：进入新阶段后，前序阶段的自动化测试须持续通过（累积回归）
+
+## 7. 复盘提炼（P1/P2 后）
+
+**已决策（不再开放）**：1 分钟间隔、backup 自动清理（keep 10）、status 状态文件、dry-run（P4）、`--force-with-lease`、禁止 mock、test/ 目录约定。
+
+**关键经验**：
+
+1. **关系判定须覆盖全拓扑**：原 `IsDiverged`（布尔"是否分叉"）漏掉"远程领先"——该态下直接 push 会非快进失败。改为 `RelationTo` 四态（UpToDate/LocalAhead/RemoteAhead/Diverged）后才正确路由。教训：状态机分支判定要枚举所有拓扑关系，不能只区分"分叉/未分叉"。
+2. **实现约束反塑设计**：项目"禁止 mock / 真实数据"规则使 TECH 原设计的 `fakeGit` 测试桩作废，改用真实 git 临时仓库 + 裸远程驱动状态机。教训：测试策略等实现约束须在设计阶段与架构对齐，否则设计返工。
+3. **环境假设要显式处理**：Go 不在 PATH（`D:\DevelopTools\go\bin`）、默认代理被墙（`GOPROXY=goproxy.cn`）、裸远程 `git init --bare` 默认 HEAD 指向 master 致 clone checkout 失败（须 `-b main`）、git 提交身份须在 `TestMain` 显式设置。教训：跨平台/环境的隐式假设要在测试夹具与构建脚本里显式固化。
+4. **安全默认优先**：force push 一律用 `--force-with-lease` 而非 `--force`，防止 fetch 与 push 之间远程被他人改写。
+5. **文档与实现同步**：每阶段完成后即时回写 PRD/TECH/PLAN，避免设计文档与代码漂移。本轮复盘即校正 5min→1min、`--force`→`--force-with-lease`、IsDiverged→RelationTo、Go 1.21→1.26、fakeGit 移除等偏差。
+
+**后续回声**（P3 起留意）：
+- local_wins 多设备并发"最后同步者覆盖"（PRD 已知权衡），真并发场景考虑引导用户改 abort。
+- backup 清理的跨设备协调尚开放（一端清理了另一端尚未拉取的备份）。
+- TECH §14 实现顺序与 PLAN 阶段一一对应，每完成一阶段即时回写进度。

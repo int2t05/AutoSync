@@ -75,7 +75,7 @@ cmd/autosync            main：CLI 分发、依赖装配（DI）
 | `internal/config` | 加载 YAML、校验、默认值 | `Config` | yaml.v3 |
 | `internal/log` | 分级日志、并发安全 | `Logger` | stdlib |
 | `internal/state` | 读写上次同步状态 JSON | `StateStore`, `State` | stdlib |
-| `internal/gitop` | GitOperator 接口、exec 实现、测试 fake | `GitOperator`, `execGit`, `fakeGit` | stdlib |
+| `internal/gitop` | GitOperator 接口、exec 实现、Relation 四态 | `GitOperator`, `execGit`, `Relation` | stdlib |
 | `internal/sync` | 同步状态机、冲突处理、backup 清理、dry-run | `Syncer`, `SyncResult`, `Outcome` | gitop, log |
 | `internal/notify` | Notifier 接口、beeep 实现、通知策略 | `Notifier`, `beeepNotifier` | beeep |
 | `internal/sched` | Scheduler 接口、平台 install/uninstall | `Scheduler` | stdlib + 平台 |
@@ -260,7 +260,7 @@ conflict_strategy: "local_wins"       # local_wins | remote_wins | abort
 backup_keep: 10                       # backup 分支保留数，默认 10
 retry_count: 3                        # 网络操作重试次数，默认 3
 retry_base_delay: "1s"                # 重试退避基数，默认 1s
-commit_msg_format: "auto sync: {{.Timestamp}}"  # Go 模板
+commit_msg_format: "auto sync: {{.Timestamp}}"  # {{.Timestamp}} 字符串替换（后续可扩展完整模板）
 log_file: "autosync.log"
 state_file: "autosync.state.json"
 show_console: false

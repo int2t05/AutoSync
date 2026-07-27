@@ -6,20 +6,21 @@ AutoSync 是一个基于 Git 命令、用 Go 编写的跨平台文件夹同步�
 
 核心定位：**简洁、高效、无感**。不追求企业级协作能力，而是把"一个文件夹在多台设备间自动同步"这件事做到极简可靠。
 
-**本轮已确认的设计基线：**
+**已确认的设计基线：**
 
-| 维度     | 决策                                                                   |
-| -------- | ---------------------------------------------------------------------- |
-| 触发方式 | 定时轮询（默认每 5 分钟，可配置）                                      |
-| 冲突策略 | 本地优先·备份远程（默认；三种策略皆可配置）                           |
+| 维度 | 决策 |
+|------|------|
+| 触发方式 | 定时轮询（默认每 1 分钟，可配置） |
+| 冲突策略 | 本地优先·备份远程（默认；三种策略皆可配置） |
 | 平台范围 | Windows 优先，架构层跨平台（选用跨平台库，macOS/Linux 后续低成本扩展） |
 | 交互形态 | CLI 核心 + 系统通知（无 GUI、无托盘；日常成功静默，仅冲突/错误时通知） |
 
 ## 2. 目标 (Goals)
 
-- 本地变更在默认 5 分钟内自动出现在远程，全过程无需用户手动操作
+- 本地变更在默认 1 分钟内自动出现在远程，全过程无需用户手动操作
 - 远程/其他设备变更自动拉取并与本地合并（双向）
 - 冲突发生时数据零丢失：远程旧版本自动备份到分支，可恢复
+- backup 分支自动清理，保留最新 N 个（默认 10），避免无限堆积
 - 单次同步在常见规模（< 10k 文件）下完成时间 < 5 秒
 - 日常成功同步"零打扰"：无弹窗、无通知，仅写日志
 - Windows 可用、macOS/Linux 可编译运行（架构不欠技术债）
@@ -38,91 +39,78 @@ AutoSync 是一个基于 Git 命令、用 Go 编写的跨平台文件夹同步�
 ## 4. 用户故事 (User Stories)
 
 ### US-001: 加载与校验配置
-
 **Description:** 作为用户，我希望程序从 config.yaml 读取配置并在启动时校验，以便错误配置能立即暴露而非运行中失败。
 
 **Acceptance Criteria:**
-
 - [ ] 读取与二进制同目录的 config.yaml（支持 `--config` 覆盖路径）
 - [ ] 缺失必填项（repo_dir / remote_url）时输出明确错误并退出码 1
 - [ ] repo_dir 不存在时输出明确错误并退出码 1
-- [ ] 可选项提供合理默认值（remote=origin, branch=main, interval=5m, conflict_strategy=local_wins）
+- [ ] 可选项提供合理默认值（remote=origin, branch=main, interval=1m, conflict_strategy=local_wins）
 - [ ] go build 通过，go vet 无警告
 
 ### US-002: 首次运行初始化仓库
-
 **Description:** 作为用户，我希望对未纳入 git 的文件夹首次运行时自动初始化并首次推送，以便零手动配置即可开始同步。
 
 **Acceptance Criteria:**
-
-- [ ] 检测 repo_dir 下无 .git 时执行：init → remote add → add -A → commit "init: first sync" → push -u
+- [ ] 检测 repo_dir 下无 .git 时执行：`git init -b <branch>` → remote add → add -A → commit（`--allow-empty`）→ push -u
 - [ ] 已是 git 仓库时跳过初始化
 - [ ] 初始化失败时输出明确错误并退出码 1
 - [ ] go build 通过
 
 ### US-003: 本地变更检测与自动提交
-
 **Description:** 作为用户，我希望本地任何变更都被自动暂存并提交，以便每次同步都有可追溯的提交记录。
 
 **Acceptance Criteria:**
-
-- [ ] 执行 git add -A
-- [ ] 用 git status --porcelain 判断是否有变更；无变更则跳过提交
-- [ ] 有变更时提交，消息格式 "auto sync: YYYY-MM-DD HH:MM:SS"（格式可配置）
+- [ ] 执行 `git add -A`
+- [ ] 用 `git status --porcelain` 判断是否有变更；无变更则跳过提交
+- [ ] 有变更时提交，消息格式 `auto sync: YYYY-MM-DD HH:MM:SS`（格式可配置）
 - [ ] go build 通过
 
-### US-004: 拉取远程并检测分叉
-
-**Description:** 作为同步器，我需要 fetch 远程并判断本地与远程是否分叉，以便决定直接推送还是需要合并。
+### US-004: 拉取远程并判定关系
+**Description:** 作为同步器，我需要 fetch 远程并判定本地与远程的关系，以便决定直接推送还是需要合并。
 
 **Acceptance Criteria:**
-
-- [ ] 执行 git fetch <remote></remote>；网络失败时输出明确错误并退出码 1
+- [ ] 执行 `git fetch <remote>`；网络失败时输出明确错误并退出码 1
 - [ ] 远程分支不存在时：直接 push 并结束（视为新建远程分支）
-- [ ] 远程分支存在时，用 merge-base 判断是否分叉（merge-base 既不等于 local HEAD 也不等于 remote HEAD 即为分叉）
+- [ ] 远程分支存在时，用 merge-base 判定本地与远程关系（`RelationTo` 四态：UpToDate / LocalAhead / RemoteAhead / Diverged）
+- [ ] **RemoteAhead（远程领先）须走 rebase 拉取，不能直接 push**（否则非快进失败）
 - [ ] go build 通过
 
 ### US-005: 自动 rebase 合并
-
-**Description:** 作为同步器，我希望分叉时优先尝试 rebase 自动合并，以便多数情况无需冲突处理即可双向合并。
+**Description:** 作为同步器，我希望远程有新提交时优先尝试 rebase 自动合并，以便多数情况无需冲突处理即可双向合并。
 
 **Acceptance Criteria:**
-
-- [ ] 分叉时执行 git pull --rebase <remote></remote> <branch></branch>
-- [ ] rebase 成功后执行 push 并结束，日志记录"自动合并成功"
-- [ ] rebase 失败时执行 git rebase --abort，转入冲突处理流程
+- [ ] RemoteAhead 或 Diverged 时执行 `git pull --rebase <remote> <branch>`
+- [ ] rebase 成功后执行 push 并结束，记 AutoMerged
+- [ ] rebase 失败时执行 `git rebase --abort`，转入冲突处理流程
 - [ ] go build 通过
 
 ### US-006: 冲突处理（本地优先·备份远程）
-
 **Description:** 作为用户，我希望 rebase 失败时默认以本地为准，但远程旧版本被备份到分支，以便数据可恢复。
 
 **Acceptance Criteria:**
-
-- [ ] local_wins：从 remote/<branch></branch> 创建备份分支 backup/remote-<时间戳> 并推送到远程，随后 git push --force 本地版本
-- [ ] remote_wins：git reset --hard <remote></remote>/<branch></branch> + git clean -fd，放弃本地未推送改动
+- [ ] local_wins：从 `remote/<branch>` 创建备份分支 `backup/remote-<时间戳>` 并推送到远程，随后 `git push --force-with-lease` 本地版本
+- [ ] local_wins 解决后，自动清理 `backup/remote-*` 备份分支，保留最新 `backup_keep` 个（默认 10，本地+远程）
+- [ ] remote_wins：`git reset --hard <remote>/<branch>` + `git clean -fd`，放弃本地未推送改动
 - [ ] abort：不做任何变更，记日志 + 系统通知，退出码非零
 - [ ] 策略由 config.yaml 的 conflict_strategy 字段控制，默认 local_wins
 - [ ] local_wins 完成后，通知中包含备份分支名以便恢复
 - [ ] go build 通过
 
 ### US-007: 推送与完成
-
 **Description:** 作为同步器，我需要在合并/无冲突后把本地状态推送到远程，以便其他设备能拉取到最新。
 
 **Acceptance Criteria:**
-
-- [ ] 无分叉时直接 git push <remote></remote> <branch></branch>
+- [ ] UpToDate 时记 NoChanges，不推送
+- [ ] LocalAhead 时直接 `git push <remote> <branch>`
 - [ ] 推送失败时输出明确错误并退出码 1
 - [ ] 全流程在日志中记录开始与结束
 - [ ] go build 通过
 
 ### US-008: 跨平台系统通知
-
 **Description:** 作为用户，我希望仅在冲突/错误等需要关注时收到系统通知，以便日常同步完全无感。
 
 **Acceptance Criteria:**
-
 - [ ] 日常成功同步：无通知（仅日志）
 - [ ] 冲突已处理（local_wins/remote_wins）：发送系统通知，含结果摘要
 - [ ] 同步失败（网络/推送失败等）：发送系统通知，含错误摘要
@@ -131,11 +119,9 @@ AutoSync 是一个基于 Git 命令、用 Go 编写的跨平台文件夹同步�
 - [ ] go build 通过
 
 ### US-009: 日志记录
-
 **Description:** 作为用户/开发者，我希望所有同步行为写入日志文件，以便排查问题。
 
 **Acceptance Criteria:**
-
 - [ ] 日志路径可配置（默认 exe 同目录 autosync.log）
 - [ ] 每条含时间戳、级别（INFO/WARN/ERROR）、消息
 - [ ] 记录每次同步的开始/结束、执行的 git 命令摘要、结果
@@ -143,27 +129,32 @@ AutoSync 是一个基于 Git 命令、用 Go 编写的跨平台文件夹同步�
 - [ ] go build 通过
 
 ### US-010: .gitignore 自动维护
-
 **Description:** 作为用户，我希望同步工具自动忽略自身产生的文件和系统垃圾文件，以便仓库不被污染。
 
 **Acceptance Criteria:**
-
-- [ ] 配置中 ignore 列表的条目若不存在于 .gitignore 则追加
-- [ ] 默认忽略：*.tmp, Thumbs.db, desktop.ini, .DS_Store, autosync.log, config.yaml
+- [ ] 配置中 ignore 列表的条目若不存在于 .gitignore 则**从末尾追加**（绝不覆盖已有内容）
+- [ ] 默认忽略：`*.tmp`, `Thumbs.db`, `desktop.ini`, `.DS_Store`, `autosync.log`, `autosync.state.json`, `config.yaml`
 - [ ] 不重复追加已存在条目
 - [ ] go build 通过
 
 ### US-011: 定时调度自安装（install / uninstall）
-
 **Description:** 作为用户，我希望一条命令即可注册/卸载系统定时任务，以便实现"无感"自动同步而无需手动配置调度器。
 
 **Acceptance Criteria:**
-
 - [ ] `autosync install`：注册系统定时任务，按配置间隔调用 `autosync sync`
 - [ ] `autosync uninstall`：移除已注册的定时任务
-- [ ] Windows 实现：通过 schtasks 注册（/SC MINUTE /MO <间隔>）
+- [ ] Windows 实现：通过 schtasks 注册（`/SC MINUTE /MO <间隔>`）
 - [ ] macOS/Linux：定义 launchd/cron 接口，MVP 可仅 Windows 实现，其余平台返回"未实现"提示（不阻塞编译）
 - [ ] install 失败时输出明确错误并退出码 1
+- [ ] go build 通过
+
+### US-012: dry-run 预览
+**Description:** 作为用户，我希望在不改动仓库的前提下预览同步将执行的操作，以便对 force-push 工具建立信心。
+
+**Acceptance Criteria:**
+- [ ] `autosync sync --dry-run` 执行只读分析，跳过 fetch 与所有写操作
+- [ ] 输出计划：将提交哪些变更、本地与远程关系、会触发哪种冲突策略
+- [ ] 仓库无任何 commit / push / 分支变更
 - [ ] go build 通过
 
 ## 5. 功能需求 (Functional Requirements)
@@ -171,19 +162,21 @@ AutoSync 是一个基于 Git 命令、用 Go 编写的跨平台文件夹同步�
 - **FR-1:** 程序须支持子命令 `sync`（默认）、`install`、`uninstall`、`status`
 - **FR-2:** `sync` 执行单次同步流程后退出（一次性命令，不常驻）
 - **FR-3:** 程序须从与二进制同目录的 config.yaml 读取配置，并支持 `--config` 路径覆盖
-- **FR-4:** 配置项须包含：repo_dir, remote, remote_url, branch, interval, conflict_strategy, commit_msg_format, log_file, show_console, ignore[]
+- **FR-4:** 配置项须包含：repo_dir, remote, remote_url, branch, interval, conflict_strategy, backup_keep, retry_count, retry_base_delay, commit_msg_format, log_file, state_file, show_console, ignore[]
 - **FR-5:** 首次运行（无 .git）须自动 init + 首次推送
 - **FR-6:** 每次同步须 add -A，有变更则 commit（消息含时间戳，格式可配置）
 - **FR-7:** 每次同步须 fetch 远程；远程分支不存在则直接 push
-- **FR-8:** 须用 merge-base 检测本地与远程分叉
-- **FR-9:** 分叉时须先 pull --rebase；成功则 push
-- **FR-10:** rebase 失败时须按 conflict_strategy 处理：local_wins（备份远程到 backup/remote-<ts></ts> 分支后 force push）/ remote_wins（reset --hard + clean）/ abort（中止并通知）
+- **FR-8:** 须用 merge-base 判定本地与远程关系（`RelationTo` 四态）
+- **FR-9:** RemoteAhead 或 Diverged 时须先 pull --rebase；成功则 push
+- **FR-10:** rebase 失败时须按 conflict_strategy 处理：local_wins（备份远程到 `backup/remote-<ts>` 分支后 `--force-with-lease` 推送）/ remote_wins（reset --hard + clean）/ abort（中止并通知）
 - **FR-11:** 日常成功同步须静默（仅日志）；冲突处理与失败须发系统通知
-- **FR-12:** 须维护 .gitignore，确保 ignore 列表条目存在
+- **FR-12:** 须维护 .gitignore，确保 ignore 列表条目存在（仅追加）
 - **FR-13:** 须写日志文件，含时间戳/级别/消息与 git 命令摘要
-- **FR-14:** 所有 git 命令须设置 GIT_TERMINAL_PROMPT=0、GIT_MERGE_AUTOEDIT=no，避免交互阻塞
+- **FR-14:** 所有 git 命令须设置 `GIT_TERMINAL_PROMPT=0`、`GIT_MERGE_AUTOEDIT=no`，避免交互阻塞
 - **FR-15:** install/uninstall 须在 Windows 通过 schtasks 注册/移除定时任务，调用 sync 子命令
 - **FR-16:** 跨平台抽象层须隔离通知与调度实现，使 macOS/Linux 可编译（功能可后续补齐）
+- **FR-17:** local_wins 解决冲突后须自动清理 `backup/remote-*` 备份分支，保留最新 `backup_keep` 个（本地+远程）
+- **FR-18:** 须支持 `sync --dry-run` 预览同步计划，不改动仓库
 
 ## 6. 设计考量 (Design Considerations)
 
@@ -191,7 +184,7 @@ AutoSync 是一个基于 Git 命令、用 Go 编写的跨平台文件夹同步�
 
 ```
 autosync                # 等同于 sync
-autosync sync           # 执行单次同步，退出
+autosync sync           # 执行单次同步，退出（支持 --dry-run）
 autosync install        # 注册系统定时任务
 autosync uninstall      # 移除定时任务
 autosync status         # 显示配置与上次同步状态
@@ -205,17 +198,17 @@ MVP 采用**"一次性命令 + OS 调度器"**模型，而非内置长驻守护�
 - 更健壮：崩溃不影响下次调度；OS 负责重启
 - 更无感：`install` 命令封装平台差异，用户无需手配调度器
 
-代价：调度精度受 OS 限制（Windows Task Scheduler 最小 1 分钟）。对"分钟级轮询"目标可接受。
+代价：调度精度受 OS 限制（Windows Task Scheduler 最小 1 分钟）。默认 1 分钟间隔与该限制一致。
 替代方案（内置 daemon + 内部 ticker）列为后续增强。
 
 ### 通知策略（无感核心）
 
-| 场景           | 行为              |
-| -------------- | ----------------- |
-| 成功同步       | 静默，仅日志      |
+| 场景 | 行为 |
+|------|------|
+| 成功同步 | 静默，仅日志 |
 | 冲突已自动处理 | 通知 + 备份分支名 |
-| 同步失败       | 通知 + 错误摘要   |
-| 首次初始化     | 通知一次          |
+| 同步失败 | 通知 + 错误摘要 |
+| 首次初始化 | 通知一次 |
 
 ### 配置文件示例
 
@@ -224,17 +217,22 @@ repo_dir: "D:\\MySyncFolder"
 remote: "origin"
 remote_url: "git@github.com:yourname/your-repo.git"
 branch: "main"
-interval: "5m"
-conflict_strategy: "local_wins"   # local_wins | remote_wins | abort
+interval: "1m"                      # 默认 1m，OS 调度器间隔
+conflict_strategy: "local_wins"     # local_wins | remote_wins | abort
+backup_keep: 10                     # backup 分支保留数，默认 10
+retry_count: 3                      # 网络操作重试次数，默认 3
+retry_base_delay: "1s"              # 重试退避基数，默认 1s
 commit_msg_format: "auto sync: {{.Timestamp}}"
 log_file: "autosync.log"
+state_file: "autosync.state.json"
 show_console: false
-ignore:
+ignore:                             # 自动写入 repo_dir/.gitignore（仅追加）
   - "*.tmp"
   - "Thumbs.db"
   - "desktop.ini"
   - ".DS_Store"
   - "autosync.log"
+  - "autosync.state.json"
   - "config.yaml"
 ```
 
@@ -242,16 +240,17 @@ ignore:
 
 ```
 开始
- ├─ 首次运行？→ git init + 首次推送 → 通知 → 结束
+ ├─ 首次运行？→ git init -b + 首次推送 → 通知 → 结束(InitDone)
  ├─ 有本地变更？→ git add -A + commit
  ├─ git fetch
- ├─ 远程分支不存在？→ git push → 结束
- ├─ 有分叉？
- │    ├─ 否 → git push → 结束
- │    └─ 是 → git pull --rebase
- │              ├─ 成功 → git push → 结束
+ ├─ 远程分支不存在？→ git push → 结束(Pushed)
+ ├─ RelationTo（本地 vs 远程四态）
+ │    ├─ UpToDate ───────────────────► 结束(NoChanges)
+ │    ├─ LocalAhead ──► git push ────► 结束(Pushed)
+ │    └─ RemoteAhead / Diverged
+ │              ├─ git pull --rebase 成功 → git push → 结束(AutoMerged)
  │              └─ 冲突 → 按策略处理
- │                         ├─ local_wins:  备份远程 → force push → 通知
+ │                         ├─ local_wins:  备份远程 → --force-with-lease 推送 → 清理 → 通知
  │                         ├─ remote_wins: reset --hard 到远程 → 通知
  │                         └─ abort:       中止 → 通知
  └─ 日志记录全程
@@ -261,39 +260,39 @@ ignore:
 
 ### 依赖
 
-- Go 1.21+（单二进制，跨平台交叉编译）
-- YAML 解析：gopkg.in/yaml.v3
-- 系统通知：gen2brain/beeep（Win/macOS/Linux）或等价跨平台库
+- Go 1.26+（单二进制，跨平台交叉编译）
+- YAML 解析：`gopkg.in/yaml.v3`
+- 系统通知：`gen2brain/beeep`（Win/macOS/Linux）
 - 外部依赖：系统须已安装 git 并在 PATH 中
 
 ### 认证前置条件（假设）
 
 - 依赖系统已配置的 git 凭证（SSH key 或 git credential helper）
-- 程序不存储/管理任何凭证；GIT_TERMINAL_PROMPT=0 防止交互式凭证提示挂起
+- 程序不存储/管理任何凭证；`GIT_TERMINAL_PROMPT=0` 防止交互式凭证提示挂起
 - 首次使用前用户须自行确保 `git push` 可无交互成功
 
 ### 跨平台架构
 
-- 通知与调度分别定义 interface，按平台实现（构建标签隔离：notif_windows.go / notif_darwin.go / notif_linux.go）
+- 通知与调度分别定义 interface，按平台实现（构建标签隔离：`*_windows.go` / `*_darwin.go` / `*_linux.go`）
 - 路径处理统一用 filepath，不硬编码分隔符
 - 不使用任何平台特定 syscall（如 user32.dll）于核心逻辑
 
 ### 已知权衡（须明示）
 
-- **local_wins + 多设备并发编辑**：若 A、B 两设备同时有分歧改动，A 先同步会 force push 并备份远程；B 随后同步又会 force push 并备份 A 的状态。结果是"最后同步者覆盖"，旧版本散落在 backup/ 分支。数据不丢失但分支会堆积。建议真正并发编辑场景改用 abort 策略或正常 git 工作流。
+- **local_wins + 多设备并发编辑**：若 A、B 两设备同时有分歧改动，A 先同步会强制推送（`--force-with-lease`）并备份远程；B 随后同步又会强制推送并备份 A 的状态。结果是"最后同步者覆盖"，旧版本散落在 backup/ 分支。数据不丢失但分支会堆积（由 backup_keep 清理缓解）。建议真正并发编辑场景改用 abort 策略或正常 git 工作流。
 - 定时轮询有分钟级延迟，非实时。
-- force push 会改写远程历史；协作场景慎用。
+- 强制推送（`--force-with-lease`）会改写远程历史；协作场景慎用。
 
 ### 错误处理
 
 - 所有 git 命令失败须捕获 stdout/stderr，记日志并向上传递
-- 网络失败（fetch/push）须明确提示"网络问题"，不执行 force push
-- rebase 失败后须确保 rebase --abort 干净退出，不残留冲突状态
+- 网络失败（fetch/push）须明确提示"网络问题"，不执行强制推送
+- rebase 失败后须确保 `git rebase --abort` 干净退出，不残留冲突状态
 
 ## 8. 成功指标 (Success Metrics)
 
-- 配置完成后，默认 5 分钟内本地变更自动出现在远程，全程无手动操作
-- 冲突时远程旧版本可从 backup/remote-* 分支完整恢复（零数据丢失）
+- 配置完成后，默认 1 分钟内本地变更自动出现在远程，全程无手动操作
+- 冲突时远程旧版本可从 `backup/remote-*` 分支完整恢复（零数据丢失）
 - 单次同步（< 10k 文件）完成 < 5 秒
 - 日常成功同步零通知打扰（仅日志可见）
 - Windows 上完成完整 install → sync → uninstall 流程无错误
@@ -301,10 +300,10 @@ ignore:
 
 ## 9. 开放问题 (Open Questions)
 
-- 默认轮询间隔 5 分钟是否合适？是否需要"空闲时降频"以省电/省网络？
-- backup/ 分支是否需要自动清理策略（如保留近 N 个）？长期使用会堆积。
-- `status` 子命令是否需要引入状态文件以展示上次同步时间/结果？
+> P1/P2 实现中已决策的项（1 分钟间隔、backup 自动清理、status 状态文件、dry-run）已落入需求与 PLAN，不再列为开放。以下为仍未决项：
+
 - 多文件夹同步是否纳入路线图（多实例配置 vs 单进程多任务）？
 - 是否需要 HTTPS token 认证引导（生成/存储 token）以降低 SSH 配置门槛？
 - macOS/Linux 的 launchd/cron 自安装何时补齐？
-- 是否需要 dry-run 模式（只展示将执行的操作，不实际改动）？
+- local_wins 多设备并发"最后同步者覆盖"是否需要更智能的合并策略（如三方合并提示）？
+- backup 清理是否需要跨设备协调（避免一端清理了另一端尚未拉取的备份）？
