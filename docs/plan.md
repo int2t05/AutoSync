@@ -86,6 +86,15 @@ flowchart LR
 - [ ] CLI `sync`/`status` 与托盘共存不冲突（单实例锁验证）
 - [x] `go build` / `vet` / `test` / `-race` 全绿
 
+## 收尾增补：byproduct 迁移 + 图标 + 审计修复
+
+M4 之后的收尾改进（代码已落地）：
+
+- **byproduct 迁移**：配置/日志/状态/锁统一到 `~/.autosync/`（`logs/`/`state/`/`locks/` 子目录），exe 位置独立。路径解析集中到 `internal/config/paths.go`，移除 `BesideExe`/`Config.Resolve*`/`LogFile`/`StateFile`。可用 `AUTOSYNC_DATA_DIR` 覆盖。
+- **自有图标**：`internal/assets`（icon.svg → icon.png）嵌入供托盘/窗口；`cmd/genicon` 光栅化；`cmd/autosync/winres` + go-winres 生成 .syso 供 exe 图标。
+- **审计修复**：tasksched `runners` 数据竞争（`Runners` 返回副本、`RunNow`/`SetPaused` 锁内查找）、`runTray` 先初始化日志再加载配置（静默版可诊断）、`TaskRunner.Run` 错误日志对齐、`autostart.Disable` 容错已不存在值、`configstore.Save` 原子写、托盘 `selected` 重置。
+- **延后**（记入 [TODO.md](TODO.md)）：抽 `sync.Orchestrator`、gitop 超时、Reload 非阻塞、RelationTo 破坏性回退等。
+
 ## 约定
 
 - 测试在 `test/` 目录，真实 git 临时仓库，禁止 mock。GUI/托盘/注册表项标手动验收。

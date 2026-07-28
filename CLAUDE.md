@@ -18,7 +18,7 @@
 - **核心目标**：简洁、高效、无感；多设备双向同步；冲突零丢失（远程旧版本备份到分支可恢复）。
 - **技术栈**：Go 1.26+；`gopkg.in/yaml.v3`（配置）；`gen2brain/beeep`（系统通知）；shell out 调系统 git（`exec.Command`）；无 Web 框架、无数据库、无 ORM。
 - **运行时**：系统已安装 git 并在 PATH；依赖系统 git 凭证（SSH key 或 credential helper），程序不管理凭证。
-- **交付**：单二进制（Windows 优先，架构跨平台），托盘常驻守护（Fyne）+ 注册表开机自启；CLI 一次性命令保留供脚本 / 无头。
+- **交付**：单二进制（Windows 优先，架构跨平台），托盘常驻守护（Fyne）+ 注册表开机自启 + 自有图标；CLI 一次性命令保留供脚本 / 无头。byproduct 统一在 `~/.autosync/`，exe 位置独立。
 
 ## 4. 常用命令
 
@@ -71,6 +71,7 @@ make build-all   # 三平台交叉编译
 | `internal/tasksched` | 任务调度：每任务 ticker + TaskRunner 复用 Syncer |
 | `internal/tray` | 托盘守护应用（Fyne，构建标签 traygui 隔离）|
 | `internal/autostart` | 开机自启（Windows 注册表 Run 键，非 Windows stub）|
+| `internal/assets` | 嵌入图标资源（icon.svg → icon.png，供托盘/窗口/exe）|
 | `test/` | **所有测试代码**（真实数据，禁止 mock）|
 | `docs/` | prd / tech / flow / api / TODO / plan |
 | `config.example.yaml` | 配置模板 |
@@ -114,7 +115,7 @@ make build-all   # 三平台交叉编译
 
 ```go
 // config.go 负责同步配置的加载、默认值填充与校验。
-// 配置文件为 YAML，与二进制同目录，可通过 --config 覆盖路径。
+// 配置文件为 YAML，位于 ~/.autosync/，可通过 --config 覆盖路径。
 package config
 
 // Load 从指定路径读取并解析配置，填充默认值后校验必填项与合法性。

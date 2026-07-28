@@ -213,3 +213,30 @@ func TestConfigStore_Validation(t *testing.T) {
 		t.Errorf("repo_dir 不存在应加载失败")
 	}
 }
+
+// TestConfigStore_SaveAtomic 验证 Save 写入配置且不残留临时文件，可重载。
+func TestConfigStore_SaveAtomic(t *testing.T) {
+	d := makeTempDir(t, "autosync-repo-*")
+	p := filepath.Join(makeTempDir(t, "autosync-cfg-*"), "autosync.conf.yaml")
+	store := configstore.NewStore(p)
+	if err := store.Add(mkTask("t1", d, "u1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := configstore.Load(p)
+	if err != nil {
+		t.Fatalf("重载失败: %v", err)
+	}
+	if len(reloaded.List()) != 1 || reloaded.List()[0].Name != "t1" {
+		t.Errorf("重载后任务不符: %+v", reloaded.List())
+	}
+	// 原子写不应残留临时文件
+	entries, _ := os.ReadDir(filepath.Dir(p))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("残留临时文件: %s", e.Name())
+		}
+	}
+}

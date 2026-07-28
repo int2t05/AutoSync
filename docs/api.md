@@ -1,11 +1,12 @@
 # API · 命令接口
 
-> CLI 即用户接口。请求 = 命令行调用，响应 = 标准输出 + 退出码。无子命令时默认 `sync`。
+> CLI 即用户接口。请求 = 命令行调用，响应 = 标准输出 + 退出码。无子命令时默认进入托盘守护（`tray`）。
 
 ## 通用
 
-- 配置文件默认与二进制同目录的 `config.yaml`，`--config` 覆盖路径。
-- 日志写 `autosync.log`（二进制同目录），`show_console: true` 时同时输出到控制台。
+- 配置文件默认 `~/.autosync/config.yaml`，`--config` 覆盖路径。托盘多任务配置为 `~/.autosync/autosync.conf.yaml`。
+- byproduct 统一在 `~/.autosync/`：日志 `logs/autosync.log`、状态 `state/`、锁 `locks/`。可用 `AUTOSYNC_DATA_DIR` 覆盖数据目录。
+- `show_console: true` 时日志同时输出到控制台。
 - 退出码：`0` 成功 / 静默跳过；`1` 同步失败或冲突中止。
 
 ## sync

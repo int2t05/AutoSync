@@ -16,3 +16,9 @@ config.yaml
 
 # Go
 /vendor/
+
+# byproduct（V1.1 起位于 ~/.autosync/；此处忽略仓库根意外生成的旧布局残留）
+/autosync.conf.yaml
+/autosync.state-*.json
+/autosync.lock-*
+/autosync.daemon.lock

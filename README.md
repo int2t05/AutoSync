@@ -17,6 +17,7 @@
 - **真正无感**：成功静默，仅初始化 / 冲突 / 失败弹系统通知。
 - **开箱健壮**：网络操作指数退避重试、单实例锁防并发、备份分支自动清理。
 - **dry-run 预览**：只读输出同步计划，不联网不改仓库。
+- **自有图标**：托盘 / 窗口 / exe 自有 SVG 图标，位置无关、可装只读目录。
 
 ## 快速开始
 
@@ -29,6 +30,17 @@ make build-cli      # 纯 Go CLI 版（无托盘，快速 / 跨平台）
 autosync                       # 启动托盘守护（双击等同）
 autosync install               # 开机自启（写注册表 Run 键）
 autosync sync --dry-run        # CLI 一次性只读预览
+```
+
+## 数据目录
+
+配置与 byproduct（日志/状态/锁）统一在 `~/.autosync/`，exe 位置独立——可装进 `Program Files`、可在任意位置双击。可用 `AUTOSYNC_DATA_DIR` 覆盖。
+
+```
+~/.autosync/
+  autosync.conf.yaml   # 托盘多任务配置（GUI 管理）
+  config.yaml          # CLI 单任务配置
+  logs/  state/  locks/
 ```
 
 ## 架构

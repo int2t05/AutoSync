@@ -68,8 +68,9 @@ flowchart LR
 
 ```
 cmd/autosync/         入口：CLI 分发与依赖装配
-internal/config       配置加载 / 默认值 / 校验
-internal/log          分级日志（文件 + 控制台，并发安全）
+cmd/genicon          图标生成：SVG→PNG（oksvg 光栅化，仅改图标时运行）
+internal/config      配置加载 / 默认值 / 校验 + byproduct 路径解析（~/.autosync/）
+internal/log         分级日志（文件 + 控制台，并发安全）
 internal/gitignore    .gitignore 追加式维护
 internal/gitop        GitOperator 接口 + exec 实现 + 重试装饰器
 internal/sync         同步状态机 / 冲突处理 / dry-run / backup 清理
@@ -80,8 +81,24 @@ internal/configstore  多任务配置 Store（autosync.conf.yaml，CRUD + 持久
 internal/tasksched    任务调度：每任务 ticker + TaskRunner 复用 Syncer
 internal/tray         托盘守护应用（Fyne，构建标签 traygui 隔离）
 internal/autostart    开机自启（Windows 注册表 Run 键，非 Windows stub）
+internal/assets       嵌入图标资源（icon.svg → icon.png，供托盘/窗口/exe）
 test/                 全部测试（真实 git 临时仓库，禁止 mock）
 ```
+
+## byproduct 与路径
+
+所有 byproduct 统一存放于用户数据目录 `~/.autosync/`（可用 `AUTOSYNC_DATA_DIR` 覆盖），使 exe 位置独立（可装进只读目录、可任意位置打开）：
+
+```
+~/.autosync/
+  config.yaml                 # CLI 单任务配置
+  autosync.conf.yaml          # 托盘多任务配置
+  logs/autosync.log           # 日志（CLI + 守护共享）
+  state/autosync.state-<name>.json   # 每任务状态
+  locks/autosync.lock-<name>         # 每任务锁 / 守护锁 autosync.daemon.lock
+```
+
+路径解析集中于 `internal/config/paths.go`（`UserDataDir` / `LogFilePath` / `StateFilePath` / `LockFilePath` 等），`log`/`state`/`lock` 包只接收路径不解析。
 
 ## 平台策略
 

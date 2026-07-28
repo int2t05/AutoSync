@@ -3,7 +3,7 @@
 
 GO ?= go
 
-.PHONY: test test-race vet fmt tidy build build-all clean
+.PHONY: test test-race vet fmt tidy build build-all icons clean
 
 # 运行全部测试（test/ 目录，真实数据）
 test:
@@ -37,6 +37,12 @@ build-all:
 	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
 	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-darwin ./cmd/autosync
 	GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-linux ./cmd/autosync
+
+# 生成图标资源：SVG→PNG（cmd/genicon）+ Windows exe 图标 .syso（go-winres）
+# 仅在 icon.svg 改动后运行；.syso 已提交，常规构建无需执行。
+icons:
+	$(GO) run ./cmd/genicon
+	cd cmd/autosync && $(GO) run github.com/tc-hib/go-winres@latest make
 
 clean:
 	rm -f AutoSync.exe AutoSync_Silent.exe AutoSync-CLI.exe autosync-darwin autosync-linux

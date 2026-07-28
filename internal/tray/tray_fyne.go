@@ -14,7 +14,6 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"autosync/internal/autostart"
@@ -41,7 +40,7 @@ func NewTrayApp(sched *tasksched.TaskScheduler, store *configstore.Store, logger
 func (a *TrayApp) Run() error {
 	a.refreshMenu()
 	if desk, ok := a.app.(desktop.App); ok {
-		desk.SetSystemTrayIcon(theme.FyneLogo())
+		desk.SetSystemTrayIcon(TrayIcon())
 	}
 	if len(a.store.List()) == 0 {
 		a.showConfig() // 首次运行无任务：自动弹出配置窗口
@@ -129,6 +128,7 @@ func (a *TrayApp) showConfig() {
 		return
 	}
 	a.win = a.app.NewWindow("AutoSync 配置")
+	a.win.SetIcon(TrayIcon())
 	a.win.SetContent(a.buildConfigContent())
 	a.win.Resize(fyne.NewSize(640, 420))
 	a.win.SetOnClosed(func() { a.win = nil })
@@ -150,11 +150,11 @@ func (a *TrayApp) buildConfigContent() fyne.CanvasObject {
 	selected := -1
 	list.OnSelected = func(id widget.ListItemID) { selected = int(id) }
 
-	addBtn := widget.NewButton("新增", func() { a.editTask(nil, list) })
+	addBtn := widget.NewButton("新增", func() { a.editTask(nil, list, &selected) })
 	editBtn := widget.NewButton("编辑", func() {
 		tasks := a.store.List()
 		if selected >= 0 && selected < len(tasks) {
-			a.editTask(tasks[selected], list)
+			a.editTask(tasks[selected], list, &selected)
 		}
 	})
 	delBtn := widget.NewButton("删除", func() {
@@ -182,8 +182,8 @@ func (a *TrayApp) buildConfigContent() fyne.CanvasObject {
 	return container.NewBorder(toolbar, nil, nil, nil, list)
 }
 
-// editTask 弹出表单编辑任务（existing 为 nil 表示新增），保存后热重载。
-func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List) {
+// editTask 弹出表单编辑任务（existing 为 nil 表示新增），保存后热重载并重置选中项。
+func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, selected *int) {
 	t := &configstore.Task{}
 	if existing != nil {
 		*t = *existing
@@ -236,6 +236,8 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List) {
 			return
 		}
 		a.persistAndReload()
+		*selected = -1
+		list.UnselectAll()
 		list.Refresh()
 	}, a.win)
 	dlg.Resize(fyne.NewSize(500, 420))

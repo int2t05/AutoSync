@@ -13,15 +13,17 @@
 | 通知不分级 | 信息/警告/错误图标一致 | beeep 投递统一默认图标 |
 | 连续失败无降噪 | 持续失败会重复通知 | `ConsecutiveFailures` 字段已预留未启用 |
 
-## V1.1 进行中：托盘守护
+## V1.1：托盘守护（已完成）
 
-V1.1 将 CLI 一次性工具升级为托盘常驻守护应用（方案 A）。详见 [plan.md](plan.md)。
+V1.1 将 CLI 一次性工具升级为托盘常驻守护应用（方案 A），代码已落地。详见 [plan.md](plan.md)。
 
 - **托盘守护**：Fyne 托盘 + 配置窗口，内置 ticker 定时同步（取代 schtasks）。
 - **多文件夹**：`autosync.conf.yaml` 多任务，每任务独立 state/lock。
-- **开机自启**：注册表 Run 键（`install`/`uninstall` 新语义）。
-- **右键手动同步**：托盘菜单对指定任务立即触发。
+- **开机自启**：注册表 Run 键（`install`/`uninstall` 新语义，托盘菜单可切换）。
+- **右键手动同步 / 暂停**：托盘菜单对指定任务立即触发或暂停。
 - **CLI 保留**：`sync`/`status` 供脚本/无头。
+- **byproduct 集中**：配置/日志/状态/锁统一在 `~/.autosync/`，exe 位置独立。
+- **自有图标**：托盘/窗口/exe 自有 SVG 图标。
 
 ## 后续方向
 
@@ -39,6 +41,15 @@ flowchart LR
 - **HTTPS token 引导**：降低 SSH 凭证配置门槛。
 - **连续失败降噪**：启用 `ConsecutiveFailures`，指数退避告警。
 - **backup 清理增强**：按时间过期、跨设备协调。
+
+### 架构优化（审计延后）
+
+- **抽取 `sync.Orchestrator`**：`runSync` 与 `TaskRunner.Run` 的 lock→gitignore→syncer→state→notify 编排重复，抽共享层。
+- **gitop exec 超时 + 错误包装**：`execGit.run` 无超时（hung git 冻结 ticker/Reload/退出），改 `context.WithTimeout`；错误用 `%w` 包装。
+- **Reload 非阻塞**：`TaskScheduler.Reload` 的 `Stop.wg.Wait` 阻塞 UI 线程，改 goroutine + `fyne.Do` 刷菜单。
+- **RelationTo 破坏性回退**：merge-base 失败回退 `RelDiverged` 可能致 `local_wins` 覆盖无关远程，需显式处理。
+- **log 格式化助手**：补 `Infof`/`Warnf`/`Errorf` 统一格式化风格（当前 Sprintf 与拼接混用）。
+- **pidAlive 容错**：`tasklist` 不可用时回退 alive 致死锁无法恢复。
 
 ## 代码 TODO 清单
 
@@ -58,17 +69,11 @@ flowchart LR
 | `internal/notify/beeep.go:17` | 按 severity 区分通知图标（当前统一默认图标） |
 | `internal/state/state.go:18` | 启用 `ConsecutiveFailures` 抑制重复通知与退避告警 |
 
-### 配置与多实例
-
-| 位置 | TODO |
-|------|------|
-| `internal/config/config.go:172` | 配置路径支持 HOME / 系统配置目录（多实例场景） |
-
 ## 一致性审计
 
 双向校验：代码内 `// TODO:` 注释 ↔ 本文档清单。
 
-- 代码 TODO 总数：**6**
-- 本文档收录：**6**
+- 代码 TODO 总数：**4**
+- 本文档收录：**4**
 - 校验方式：`git grep -n "TODO:" -- '*.go'` 输出与上表一一对应。
 - 维护约定：新增 / 删除代码 TODO 须同步更新本文档；本文档条目须能在代码中定位。

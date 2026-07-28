@@ -64,7 +64,9 @@ func (r *TaskRunner) Run() sync.SyncResult {
 	defer release()
 
 	// .gitignore 维护：仅追加缺失条目
-	gitignore.Ensure(filepath.Join(r.task.RepoDir, ".gitignore"), r.task.Ignore)
+	if _, err := gitignore.Ensure(filepath.Join(r.task.RepoDir, ".gitignore"), r.task.Ignore); err != nil {
+		r.logger.Warn(fmt.Sprintf("任务 %s 维护 .gitignore 失败: %v", r.task.Name, err))
+	}
 
 	// 构造 git 操作器（execGit + 重试装饰器）并执行同步状态机
 	gitOp := gitop.NewRetryGit(
@@ -74,12 +76,14 @@ func (r *TaskRunner) Run() sync.SyncResult {
 	result := sync.NewSyncer(&r.task.Config, gitOp, r.logger).Run()
 
 	// 持久化状态（供 status / 托盘读取）
-	state.New(r.task.ResolveStateFile()).Save(state.State{
+	if err := state.New(r.task.ResolveStateFile()).Save(state.State{
 		LastSyncAt:   time.Now(),
 		LastOutcome:  result.Outcome.String(),
 		LastMessage:  result.Message,
 		BackupBranch: result.BackupBranch,
-	})
+	}); err != nil {
+		r.logger.Warn(fmt.Sprintf("任务 %s 写状态文件失败: %v", r.task.Name, err))
+	}
 
 	// 通知策略：成功静默，异常才通知
 	decision := notify.PolicyFor(result)
@@ -111,8 +115,14 @@ func NewTaskScheduler(tasks []*configstore.Task, logger *log.Logger) *TaskSchedu
 	return &TaskScheduler{runners: runners, logger: logger}
 }
 
-// Runners 返回全部任务执行器（供托盘菜单构造）。
-func (s *TaskScheduler) Runners() []*TaskRunner { return s.runners }
+// Runners 返回全部任务执行器的副本（供托盘菜单构造，避免与 Reload 并发读写）。
+func (s *TaskScheduler) Runners() []*TaskRunner {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*TaskRunner, len(s.runners))
+	copy(out, s.runners)
+	return out
+}
 
 // Start 启动所有任务的 ticker，每个任务启动时立即执行一次。
 func (s *TaskScheduler) Start() {
@@ -169,24 +179,35 @@ func (s *TaskScheduler) Stop() {
 }
 
 // RunNow 立即执行指定任务（手动同步，忽略暂停），未找到返回错误。
+// 锁内仅查找执行器，Run() 耗时较长须在锁外执行。
 func (s *TaskScheduler) RunNow(name string) (sync.SyncResult, error) {
-	for _, r := range s.runners {
-		if r.task.Name == name {
-			return r.Run(), nil
-		}
+	r := s.runnerByName(name)
+	if r == nil {
+		return sync.SyncResult{}, fmt.Errorf("任务不存在: %q", name)
 	}
-	return sync.SyncResult{}, fmt.Errorf("任务不存在: %q", name)
+	return r.Run(), nil
 }
 
 // SetPaused 设置指定任务暂停/恢复。
 func (s *TaskScheduler) SetPaused(name string, paused bool) error {
+	r := s.runnerByName(name)
+	if r == nil {
+		return fmt.Errorf("任务不存在: %q", name)
+	}
+	r.SetPaused(paused)
+	return nil
+}
+
+// runnerByName 在锁内按名查找执行器，未找到返回 nil。
+func (s *TaskScheduler) runnerByName(name string) *TaskRunner {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, r := range s.runners {
 		if r.task.Name == name {
-			r.SetPaused(paused)
-			return nil
+			return r
 		}
 	}
-	return fmt.Errorf("任务不存在: %q", name)
+	return nil
 }
 
 // Reload 用新任务列表重建执行器并重启 ticker（配置变更后热重载）。

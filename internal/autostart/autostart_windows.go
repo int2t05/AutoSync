@@ -5,7 +5,11 @@
 
 package autostart
 
-import "golang.org/x/sys/windows/registry"
+import (
+	"errors"
+
+	"golang.org/x/sys/windows/registry"
+)
 
 // runKeyPath 当前用户登录自启的注册表路径。
 const runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
@@ -20,14 +24,17 @@ func Enable(exePath, configPath string) error {
 	return k.SetStringValue(AppName, BuildRunCommand(exePath, configPath))
 }
 
-// Disable 移除注册表 Run 键的自启项。键不存在视为成功。
+// Disable 移除注册表 Run 键的自启项。值不存在视为成功（重复 uninstall 不报错）。
 func Disable() error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
 	if err != nil {
 		return err
 	}
 	defer k.Close()
-	return k.DeleteValue(AppName)
+	if err := k.DeleteValue(AppName); err != nil && !errors.Is(err, registry.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // IsEnabled 返回自启项是否已注册。

@@ -1,5 +1,5 @@
 // config.go 负责同步配置的加载、默认值填充与校验。
-// 配置文件为 YAML，与二进制同目录（可用 --config 覆盖路径）。
+// 配置文件为 YAML，位于 ~/.autosync/（可用 --config 覆盖路径）。
 // 启动时即校验：必填项缺失、目录不存在、策略非法、时间间隔无法解析均报错，
 // 调用方应据此以退出码 1 终止，避免运行中失败。
 package config
@@ -7,7 +7,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -28,22 +27,17 @@ type Config struct {
 	RetryBaseDelay    string        `yaml:"retry_base_delay"`    // 重试退避基数字符串，默认 "1s"
 	RetryBaseDelayDur time.Duration `yaml:"-"`                   // 解析后的重试退避基数
 	CommitMsgFormat   string        `yaml:"commit_msg_format"`   // 提交消息模板，默认 "auto sync: {{.Timestamp}}"
-	LogFile           string        `yaml:"log_file"`            // 日志文件名，默认 autosync.log
-	StateFile         string        `yaml:"state_file"`          // 状态文件名，默认 autosync.state.json
 	ShowConsole       bool          `yaml:"show_console"`        // 是否输出到控制台
 	Ignore            []string      `yaml:"ignore"`              // 写入 repo_dir/.gitignore 的条目
 }
 
 // defaultIgnore 是未配置 ignore 时的默认忽略条目：
-// 排除系统垃圾文件与工具自身产物，避免污染同步仓库。
+// 排除系统垃圾文件，避免污染同步仓库（byproduct 已位于 ~/.autosync/，不进仓库）。
 var defaultIgnore = []string{
 	"*.tmp",
 	"Thumbs.db",
 	"desktop.ini",
 	".DS_Store",
-	"autosync.log",
-	"autosync.state.json",
-	"config.yaml",
 }
 
 // Load 从 path 读取并解析配置，填充默认值并校验。
@@ -92,12 +86,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.CommitMsgFormat == "" {
 		c.CommitMsgFormat = "auto sync: {{.Timestamp}}"
-	}
-	if c.LogFile == "" {
-		c.LogFile = "autosync.log"
-	}
-	if c.StateFile == "" {
-		c.StateFile = "autosync.state.json"
 	}
 	if len(c.Ignore) == 0 {
 		c.Ignore = append([]string(nil), defaultIgnore...)
@@ -167,45 +155,9 @@ func LoadLenient(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// ResolveLogFile 将日志文件名解析为绝对路径：相对路径基于二进制所在目录。
-// 已是绝对路径则原样返回；用于在任意工作目录下定位日志文件。
-// TODO: 支持 HOME / 系统配置目录（后续多实例场景）
-func (c *Config) ResolveLogFile() string {
-	return resolveBesideExe(c.LogFile)
-}
-
-// ResolveStateFile 将状态文件名解析为绝对路径：相对路径基于二进制所在目录。
-func (c *Config) ResolveStateFile() string {
-	return resolveBesideExe(c.StateFile)
-}
-
-// ResolveLockFile 返回单实例锁文件路径（二进制同目录的 autosync.lock）。
-func (c *Config) ResolveLockFile() string {
-	return resolveBesideExe("autosync.lock")
-}
-
-// resolveBesideExe 将文件名解析为基于二进制目录的绝对路径；已是绝对路径则原样返回。
-// 获取二进制路径失败时退化为原文件名（由调用方按工作目录解析）。
-func resolveBesideExe(name string) string {
-	if name == "" || filepath.IsAbs(name) {
-		return name
-	}
-	exePath, err := os.Executable()
-	if err != nil {
-		return name
-	}
-	return filepath.Join(filepath.Dir(exePath), name)
-}
-
 // Normalize 填充默认值并完整校验（含 repo_dir 存在性），填充派生字段。
 // 导出供 configstore 复用，避免多任务配置重复实现默认值与校验。
 func (c *Config) Normalize() error {
 	c.applyDefaults()
 	return c.validate()
-}
-
-// BesideExe 将文件名解析为基于二进制目录的绝对路径；已是绝对路径则原样返回。
-// 导出供 configstore 按任务名解析每任务的 state/lock 文件路径。
-func BesideExe(name string) string {
-	return resolveBesideExe(name)
 }

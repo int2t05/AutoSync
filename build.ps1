@@ -5,7 +5,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-cli", "build-all", "clean")]
+    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-cli", "build-all", "icons", "clean")]
     [string]$Target = "build"
 )
 
@@ -45,6 +45,15 @@ function Invoke-Clean {
     Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync_Silent.exe, AutoSync-CLI.exe, autosync-darwin, autosync-linux
 }
 
+# 生成图标资源：SVG→PNG + Windows exe 图标 .syso（仅 icon.svg 改动后运行；.syso 已提交）
+function Invoke-Icons {
+    go run ./cmd/genicon
+    Push-Location cmd/autosync
+    go run github.com/tc-hib/go-winres@latest make
+    Pop-Location
+    Write-Host "图标资源已生成：internal/assets/icon.png + cmd/autosync/*.syso"
+}
+
 switch ($Target) {
     "test"      { Invoke-Test }
     "test-race" { Invoke-TestRace }
@@ -54,5 +63,6 @@ switch ($Target) {
     "build"     { Invoke-Build }
     "build-cli" { Invoke-BuildCli }
     "build-all" { Invoke-BuildAll }
+    "icons"     { Invoke-Icons }
     "clean"     { Invoke-Clean }
 }

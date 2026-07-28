@@ -6,6 +6,7 @@ package configstore
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -184,6 +185,7 @@ func (s *Store) Delete(name string) error {
 }
 
 // Save 将全部任务以 tasks 列表形式写回配置文件。
+// 原子写：先写临时文件再重命名，避免崩溃中途损坏配置。
 func (s *Store) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -191,17 +193,36 @@ func (s *Store) Save() error {
 	if err != nil {
 		return fmt.Errorf("序列化配置失败: %w", err)
 	}
-	return os.WriteFile(s.path, data, 0644)
+	dir := filepath.Dir(s.path)
+	tmp, err := os.CreateTemp(dir, ".autosync.conf.*.tmp")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("写入配置失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("关闭临时文件失败: %w", err)
+	}
+	if err := os.Rename(tmpName, s.path); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("替换配置失败: %w", err)
+	}
+	return nil
 }
 
-// ResolveStateFile 返回该任务的状态文件路径（autosync.state-<name>.json，二进制同目录）。
+// ResolveStateFile 返回该任务的状态文件路径（~/.autosync/state/autosync.state-<name>.json）。
 func (t *Task) ResolveStateFile() string {
-	return config.BesideExe(fmt.Sprintf("autosync.state-%s.json", safeName(t.Name)))
+	return config.StateFilePath(safeName(t.Name))
 }
 
-// ResolveLockFile 返回该任务的锁文件路径（autosync.lock-<name>，二进制同目录）。
+// ResolveLockFile 返回该任务的锁文件路径（~/.autosync/locks/autosync.lock-<name>）。
 func (t *Task) ResolveLockFile() string {
-	return config.BesideExe(fmt.Sprintf("autosync.lock-%s", safeName(t.Name)))
+	return config.LockFilePath(safeName(t.Name))
 }
 
 // unsafeNameRe 匹配文件名不安全字符。

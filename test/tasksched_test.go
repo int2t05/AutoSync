@@ -206,3 +206,29 @@ func TestTaskScheduler_Reload(t *testing.T) {
 		t.Errorf("Reload 后 task2 未运行")
 	}
 }
+
+// TestTaskScheduler_RunnersRaceWithReload 验证 Runners 与 Reload 并发无数据竞争（-race 下应通过）。
+func TestTaskScheduler_RunnersRaceWithReload(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	task := schedTask(t, "race", repo, remote, "1m")
+	presetGitignore(t, task, repo, remote)
+
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t))
+	s.Start()
+	defer s.Stop()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 50; i++ {
+			_ = s.Runners()
+		}
+	}()
+	for i := 0; i < 5; i++ {
+		s.Reload([]*configstore.Task{task})
+	}
+	<-done
+}

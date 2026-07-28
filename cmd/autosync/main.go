@@ -71,7 +71,12 @@ func runSync(rest []string) int {
 		return 1
 	}
 
-	logger, err := log.New(cfg.ResolveLogFile(), cfg.ShowConsole)
+	if err := config.EnsureUserDataDirs(); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		return 1
+	}
+
+	logger, err := log.New(config.LogFilePath(), cfg.ShowConsole)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 日志初始化失败: %v\n", err)
 		return 1
@@ -109,7 +114,7 @@ func runSync(rest []string) int {
 	}
 
 	// 单实例锁：防止间隔内并发执行破坏仓库；被存活实例持有时静默跳过
-	locker := lock.New(cfg.ResolveLockFile())
+	locker := lock.New(config.LockFilePath("default"))
 	acquired, release := locker.Acquire()
 	if !acquired {
 		logger.Info("已有同步实例在运行，跳过本次")
@@ -120,7 +125,7 @@ func runSync(rest []string) int {
 	result := syncer.Run()
 
 	// 持久化状态（供 status 命令读取）
-	stateStore := state.New(cfg.ResolveStateFile())
+	stateStore := state.New(config.StateFilePath("default"))
 	if err := stateStore.Save(state.State{
 		LastSyncAt:   time.Now(),
 		LastOutcome:  result.Outcome.String(),
@@ -147,33 +152,40 @@ func runSync(rest []string) int {
 	return 0
 }
 
-// runTray 启动托盘守护：加载多任务配置 → 日志 → 守护级单实例锁 → 调度器 → 托盘应用。
+// runTray 启动托盘守护：先建用户目录与日志 → 加载多任务配置 → 守护级单实例锁 → 调度器 → 托盘应用。
 // 无 traygui 标签构建时托盘为桩，Run 返回未启用错误。
 func runTray(rest []string) int {
 	fs := flag.NewFlagSet("autosync", flag.ContinueOnError)
-	configPath := fs.String("config", "", "配置文件路径（默认为可执行文件同目录的 autosync.conf.yaml）")
+	configPath := fs.String("config", "", "配置文件路径（默认 ~/.autosync/autosync.conf.yaml）")
 	if err := fs.Parse(rest); err != nil {
 		return 1
 	}
 
-	store, err := configstore.Load(resolveTrayConfigPath(*configPath))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
+	// 先确保用户数据目录与日志：后续配置/锁失败可写日志，便于静默版诊断
+	if err := config.EnsureUserDataDirs(); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		return 1
 	}
-
-	logger, err := log.New(config.BesideExe("autosync.log"), false)
+	logger, err := log.New(config.LogFilePath(), false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 日志初始化失败: %v\n", err)
 		return 1
 	}
 	defer logger.Close()
+
+	store, err := configstore.Load(resolveTrayConfigPath(*configPath))
+	if err != nil {
+		logger.Error(fmt.Sprintf("配置加载失败: %v", err))
+		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
+		return 1
+	}
 	logger.Info(fmt.Sprintf("AutoSync 托盘启动 | 任务数=%d", len(store.List())))
 
 	// 守护级单实例锁：防止多个托盘实例
-	daemonLock := lock.New(config.BesideExe("autosync.daemon.lock"))
+	daemonLock := lock.New(config.DaemonLockPath())
 	acquired, release := daemonLock.Acquire()
 	if !acquired {
+		logger.Info("已有 AutoSync 实例在运行，退出")
 		fmt.Fprintln(os.Stderr, "❌ 已有 AutoSync 实例在运行")
 		return 1
 	}
@@ -181,22 +193,19 @@ func runTray(rest []string) int {
 
 	sched := tasksched.NewTaskScheduler(store.List(), logger)
 	if err := tray.NewTrayApp(sched, store, logger).Run(); err != nil {
+		logger.Error(fmt.Sprintf("托盘退出: %v", err))
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-// resolveTrayConfigPath 解析托盘配置路径：--config 优先，否则用可执行文件同目录的 autosync.conf.yaml。
+// resolveTrayConfigPath 解析托盘配置路径：--config 优先，否则用 ~/.autosync/autosync.conf.yaml。
 func resolveTrayConfigPath(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	exePath, err := os.Executable()
-	if err != nil {
-		return "autosync.conf.yaml"
-	}
-	return filepath.Join(filepath.Dir(exePath), "autosync.conf.yaml")
+	return config.TrayConfigPath()
 }
 
 // runInstall 设置开机自启：注册表 Run 键写入托盘守护启动命令，登录即自启。
@@ -256,7 +265,7 @@ func runStatus(rest []string) int {
 		return 1
 	}
 
-	st, err := state.New(cfg.ResolveStateFile()).Load()
+	st, err := state.New(config.StateFilePath("default")).Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 读取状态失败: %v\n", err)
 		return 1
@@ -281,15 +290,10 @@ func runStatus(rest []string) int {
 	return 0
 }
 
-// resolveConfigPath 解析配置文件路径：--config 优先，否则用可执行文件同目录的 config.yaml。
-// 获取二进制路径失败时退化为工作目录下的 config.yaml。
+// resolveConfigPath 解析 CLI 配置路径：--config 优先，否则用 ~/.autosync/config.yaml。
 func resolveConfigPath(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	exePath, err := os.Executable()
-	if err != nil {
-		return "config.yaml"
-	}
-	return filepath.Join(filepath.Dir(exePath), "config.yaml")
+	return config.CLIConfigPath()
 }
