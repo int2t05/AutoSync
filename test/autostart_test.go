@@ -7,10 +7,10 @@ import (
 	"autosync/internal/autostart"
 )
 
-// TestBuildRunCommand_DefaultConfig 验证缺省配置只启动托盘守护子命令。
+// TestBuildRunCommand_DefaultConfig 验证缺省配置以后台模式启动托盘守护。
 func TestBuildRunCommand_DefaultConfig(t *testing.T) {
 	got := autostart.BuildRunCommand(`C:\AutoSync\AutoSync.exe`, "")
-	want := `"C:\AutoSync\AutoSync.exe" tray`
+	want := `"C:\AutoSync\AutoSync.exe" tray --background`
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -19,7 +19,7 @@ func TestBuildRunCommand_DefaultConfig(t *testing.T) {
 // TestBuildRunCommand_WithConfig 验证显式配置追加 --config。
 func TestBuildRunCommand_WithConfig(t *testing.T) {
 	got := autostart.BuildRunCommand(`/opt/autosync/autosync`, `/etc/autosync.conf.yaml`)
-	want := `"/opt/autosync/autosync" tray --config "/etc/autosync.conf.yaml"`
+	want := `"/opt/autosync/autosync" tray --background --config "/etc/autosync.conf.yaml"`
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

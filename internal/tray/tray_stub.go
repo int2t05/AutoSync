@@ -25,7 +25,7 @@ func NewTrayApp(sched *tasksched.TaskScheduler, store *configstore.Store, logger
 	return &TrayApp{}
 }
 
-// Run 托盘桩直接返回未启用错误。
-func (a *TrayApp) Run() error {
+// Run 托盘桩直接返回未启用错误。showWindow 参数仅为与 Fyne 实现 API 一致。
+func (a *TrayApp) Run(showWindow bool) error {
 	return ErrTrayDisabled
 }

@@ -17,11 +17,11 @@ function Invoke-Vet       { go vet ./... }
 function Invoke-Fmt       { go fmt ./... }
 function Invoke-Tidy      { go mod tidy }
 
-# 构建 Windows 托盘双版本（控制台 + 静默无窗口；-tags traygui 启用 Fyne 托盘，需 CGO）
+# 构建 Windows 托盘版（单 exe，无控制台；-tags traygui 启用 Fyne 托盘，需 CGO）
+# 双击出配置窗口、可关闭至托盘；-H windowsgui 去掉 cmd 黑窗。
 function Invoke-Build {
-    go build -tags traygui -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
-    go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
-    Write-Host "构建完成：AutoSync.exe（控制台）+ AutoSync_Silent.exe（静默）— 含托盘"
+    go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
+    Write-Host "构建完成：AutoSync.exe（无控制台，双击出窗口、可缩至托盘）"
 }
 
 # 构建 Windows CLI 版（无托盘，纯 Go，快速，供开发/脚本/CI）
@@ -32,17 +32,16 @@ function Invoke-BuildCli {
 
 # 三平台交叉编译（Windows 托盘 + macOS/Linux CLI stub；非 Windows 纯 Go 可交叉编译）
 function Invoke-BuildAll {
-    go build -tags traygui -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
-    go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
+    go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
     $env:CGO_ENABLED = "0"
     $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o autosync-darwin ./cmd/autosync
     $env:GOOS = "linux";  $env:GOARCH = "amd64"; go build -o autosync-linux ./cmd/autosync
     $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
-    Write-Host "交叉编译完成：AutoSync.exe / AutoSync_Silent.exe / autosync-darwin / autosync-linux"
+    Write-Host "交叉编译完成：AutoSync.exe / autosync-darwin / autosync-linux"
 }
 
 function Invoke-Clean {
-    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync_Silent.exe, AutoSync-CLI.exe, autosync-darwin, autosync-linux
+    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe, autosync-darwin, autosync-linux
 }
 
 # 生成图标资源：SVG→PNG + Windows exe 图标 .syso（仅 icon.svg 改动后运行；.syso 已提交）

@@ -100,9 +100,9 @@ $ autosync install
 **响应**
 
 ```
-✅ 已设置开机自启："D:\AutoSync\AutoSync.exe" tray
+✅ 已设置开机自启："D:\AutoSync\AutoSync.exe" tray --background
 ```
-退出码 `0`。`--config` 指定托盘配置路径（相对路径转绝对），缺省由托盘自行解析 `~/.autosync/autosync.conf.yaml`。非 Windows 不支持（返回错误，退出码 `1`）。
+退出码 `0`。自启命令带 `--background` 后台启动（不弹窗口），登录即静默守护；`--config` 指定托盘配置路径（相对路径转绝对），缺省由托盘自行解析 `~/.autosync/autosync.conf.yaml`。非 Windows 不支持（返回错误，退出码 `1`）。
 
 ## uninstall
 
@@ -130,13 +130,15 @@ $ autosync uninstall
 无参数启动托盘守护进程（Fyne 窗口 + 托盘 + 内置定时器）。
 
 ```
-autosync                      # 启动托盘守护
+autosync                      # 启动托盘守护（双击等同，弹出配置窗口）
+autosync tray --background    # 后台启动（不弹窗口，供开机自启 / 无头）
 ```
 
+- 双击 exe 无 cmd 黑窗（`-H windowsgui`）：弹出配置窗口，关闭按钮即缩至托盘，守护继续运行。
 - 配置窗口：任务列表增删改，每任务 repo_dir / remote_url / branch / interval / conflict_strategy 等。
 - 托盘菜单：各任务手动同步 / 暂停、开机自启开关、打开配置、退出（同步状态经 `autosync status` 查询）。
 - 多任务配置：`autosync.conf.yaml` 的 `tasks: [...]`。
-- 开机自启：`install` 写注册表 Run 键、`uninstall` 移除（见上）；托盘菜单亦可切换。
+- 开机自启：`install` 写注册表 Run 键（命令带 `--background`）、`uninstall` 移除（见上）；托盘菜单亦可切换。
 
 ## 配置文件
 

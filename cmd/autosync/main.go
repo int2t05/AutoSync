@@ -153,10 +153,12 @@ func runSync(rest []string) int {
 }
 
 // runTray 启动托盘守护：先建用户目录与日志 → 加载多任务配置 → 守护级单实例锁 → 调度器 → 托盘应用。
+// --background 供开机自启：后台启动不弹配置窗口；双击裸跑则弹出窗口供交互。
 // 无 traygui 标签构建时托盘为桩，Run 返回未启用错误。
 func runTray(rest []string) int {
 	fs := flag.NewFlagSet("autosync", flag.ContinueOnError)
 	configPath := fs.String("config", "", "配置文件路径（默认 ~/.autosync/autosync.conf.yaml）")
+	background := fs.Bool("background", false, "后台启动（不弹配置窗口，供开机自启）")
 	if err := fs.Parse(rest); err != nil {
 		return 1
 	}
@@ -192,7 +194,7 @@ func runTray(rest []string) int {
 	defer release()
 
 	sched := tasksched.NewTaskScheduler(store.List(), logger)
-	if err := tray.NewTrayApp(sched, store, logger).Run(); err != nil {
+	if err := tray.NewTrayApp(sched, store, logger).Run(!*background); err != nil {
 		logger.Error(fmt.Sprintf("托盘退出: %v", err))
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		return 1

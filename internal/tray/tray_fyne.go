@@ -36,14 +36,15 @@ func NewTrayApp(sched *tasksched.TaskScheduler, store *configstore.Store, logger
 	return &TrayApp{app: app.NewWithID("autosync"), sched: sched, store: store, logger: logger}
 }
 
-// Run 启动调度器与托盘事件循环，阻塞至用户退出。空配置时自动弹出配置窗口。
-func (a *TrayApp) Run() error {
+// Run 启动调度器与托盘事件循环，阻塞至用户退出。
+// showWindow 为真（双击裸跑）时弹出配置窗口；为假（开机自启 --background）时仅托盘守护。
+func (a *TrayApp) Run(showWindow bool) error {
 	a.refreshMenu()
 	if desk, ok := a.app.(desktop.App); ok {
 		desk.SetSystemTrayIcon(TrayIcon())
 	}
-	if len(a.store.List()) == 0 {
-		a.showConfig() // 首次运行无任务：自动弹出配置窗口
+	if showWindow {
+		a.showConfig()
 	}
 	a.sched.Start()
 	a.app.Run() // 阻塞至退出
@@ -121,7 +122,7 @@ func (a *TrayApp) runTask(name string) {
 	}()
 }
 
-// showConfig 打开配置窗口（已打开则前置）。
+// showConfig 打开配置窗口（已隐藏则再次显示）。关闭按钮仅隐藏至托盘，不退出守护。
 func (a *TrayApp) showConfig() {
 	if a.win != nil {
 		a.win.Show()
@@ -131,7 +132,8 @@ func (a *TrayApp) showConfig() {
 	a.win.SetIcon(TrayIcon())
 	a.win.SetContent(a.buildConfigContent())
 	a.win.Resize(fyne.NewSize(640, 420))
-	a.win.SetOnClosed(func() { a.win = nil })
+	// 关闭按钮隐藏窗口至托盘（守护继续运行），托盘"配置..."可再次唤出
+	a.win.SetCloseIntercept(func() { a.win.Hide() })
 	a.win.Show()
 }
 

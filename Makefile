@@ -22,10 +22,10 @@ fmt:
 tidy:
 	$(GO) mod tidy
 
-# 构建 Windows 托盘双版本（控制台 + 静默；-tags traygui 启用 Fyne 托盘，需 CGO + gcc）
+# 构建 Windows 托盘版（单 exe，无控制台；-tags traygui 启用 Fyne 托盘，需 CGO + gcc）
+# 双击出配置窗口、可关闭至托盘；-H windowsgui 去掉 cmd 黑窗。
 build:
-	$(GO) build -tags traygui -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
-	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
+	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
 
 # 构建 Windows CLI 版（无托盘，纯 Go，快速，供开发/脚本/CI）
 build-cli:
@@ -33,8 +33,7 @@ build-cli:
 
 # 三平台交叉编译（Windows 托盘 + macOS/Linux CLI stub；非 Windows 纯 Go 可交叉编译）
 build-all:
-	$(GO) build -tags traygui -ldflags="-s -w" -o AutoSync.exe ./cmd/autosync
-	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
+	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
 	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-darwin ./cmd/autosync
 	GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-linux ./cmd/autosync
 
@@ -45,4 +44,4 @@ icons:
 	cd cmd/autosync && $(GO) run github.com/tc-hib/go-winres@latest make
 
 clean:
-	rm -f AutoSync.exe AutoSync_Silent.exe AutoSync-CLI.exe autosync-darwin autosync-linux
+	rm -f AutoSync.exe AutoSync-CLI.exe autosync-darwin autosync-linux

@@ -12,9 +12,10 @@ const AppName = "AutoSync"
 var ErrNotImplemented = errors.New("开机自启在当前平台未实现")
 
 // BuildRunCommand 构造开机自启的启动命令（纯函数，跨平台可测）。
-// 启动托盘守护子命令；configPath 非空时追加 --config 指定配置路径，否则用默认配置。
+// 以 --background 后台模式启动托盘守护（不弹配置窗口），避免每次登录弹窗；
+// configPath 非空时追加 --config 指定配置路径，否则用默认配置。
 func BuildRunCommand(exePath, configPath string) string {
-	cmd := "\"" + exePath + "\" tray"
+	cmd := "\"" + exePath + "\" tray --background"
 	if configPath != "" {
 		cmd += " --config \"" + configPath + "\""
 	}
