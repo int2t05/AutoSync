@@ -78,9 +78,9 @@ struct TaskEditView: View {
                     Button("选择…") { chooseDir() }
                 }
                 TextField("远程地址", text: $draft.remoteURL)
-                TextField("分支", text: Binding($draft.branch, default: "main"))
-                TextField("间隔", text: Binding($draft.interval, default: "1m"))
-                Picker("冲突策略", selection: Binding($draft.conflictStrategy, default: "local_wins")) {
+                TextField("分支", text: $draft.branch.orDefault("main"))
+                TextField("间隔", text: $draft.interval.orDefault("1m"))
+                Picker("冲突策略", selection: $draft.conflictStrategy.orDefault("local_wins")) {
                     Text("local_wins").tag("local_wins")
                     Text("remote_wins").tag("remote_wins")
                     Text("abort").tag("abort")
@@ -106,12 +106,9 @@ struct TaskEditView: View {
     }
 }
 
-// 可选字符串绑定的便捷初始化（Picker/TextField 用默认值）。
+// 可选字符串绑定转非可选（nil 用默认值），供 TextField/Picker 等需 Binding<String> 的控件使用。
 extension Binding where Value == String? {
-    init(_ source: Binding<String?>, default defaultValue: String) {
-        self.init(
-            get: { source.wrappedValue ?? defaultValue },
-            set: { source.wrappedValue = $0 }
-        )
+    func orDefault(_ defaultValue: String) -> Binding<String> {
+        Binding<String>(get: { wrappedValue ?? defaultValue }, set: { wrappedValue = $0 })
     }
 }

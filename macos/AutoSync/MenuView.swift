@@ -31,7 +31,6 @@ struct MenuView: View {
                 NSApp.terminate(nil)
             }
         }
-        .menuBarExtraStyle(.menu)
     }
 }
 
