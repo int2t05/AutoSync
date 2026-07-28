@@ -1,5 +1,7 @@
 # AutoSync
 
+<p align="center"><img src="internal/assets/icon.svg" width="128" alt="AutoSync"></p>
+
 > 基于系统 git 的跨平台文件夹双向同步工具。双击即用，托盘常驻，自动提交、合并、冲突处理，完全无感。
 
 ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)
@@ -64,7 +66,7 @@ Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git�
 | 平台 | 同步核心 | 托盘守护 | 开机自启 |
 |------|----------|----------|----------|
 | Windows | ✅ | ✅ Fyne | ✅ 注册表 Run 键 |
-| macOS / Linux | ✅ | stub（CLI 模式） | 手动 launchd / cron |
+| macOS / Linux | ✅ | 仅 CLI（无托盘） | 手动 launchd / cron |
 
 ## 文档
 

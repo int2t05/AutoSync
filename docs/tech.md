@@ -80,7 +80,7 @@ internal/lock         单实例锁（PID，跨平台）
 internal/configstore  多任务配置 Store（autosync.conf.yaml，CRUD + 持久化）
 internal/tasksched    任务调度：每任务 ticker + TaskRunner 复用 Syncer
 internal/tray         托盘守护应用（Fyne，构建标签 traygui 隔离）
-internal/autostart    开机自启（Windows 注册表 Run 键，非 Windows stub）
+internal/autostart    开机自启（Windows 注册表 Run 键；非 Windows 不支持）
 internal/assets       嵌入图标资源（icon.svg → icon.png，供托盘/窗口/exe）
 test/                 全部测试（真实 git 临时仓库，禁止 mock）
 ```
@@ -124,7 +124,7 @@ flowchart TB
 - **进程模型**：无参数启动 = 托盘守护（常驻 + 内置 ticker）；`autosync sync` = 一次性 CLI（脚本 / 无头）。单实例锁防多开。
 - **多任务**：`autosync.conf.yaml` 的 `tasks: [...]`，每任务独立 state（`autosync.state-<name>.json`）与 lock。旧单配置无 `tasks` 视为单任务（向后兼容）。
 - **GUI**：Fyne（纯 Go，窗口 + 托盘一体，跨平台）。
-- **自启**：`install` / `uninstall` 改为注册表 `HKCU\...\Run` 键开关（替代 schtasks）。非 Windows 留 stub。
+- **自启**：`install` / `uninstall` 改为注册表 `HKCU\...\Run` 键开关（替代 schtasks）。非 Windows 不支持。
 - **托盘菜单**：各任务手动同步 / 暂停、开机自启开关、打开配置、退出（同步状态经 `autosync status` 查询）。
 
 ## 测试策略

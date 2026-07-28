@@ -102,7 +102,7 @@ $ autosync install
 ```
 ✅ 已设置开机自启："D:\AutoSync\AutoSync.exe" tray
 ```
-退出码 `0`。`--config` 指定托盘配置路径（相对路径转绝对），缺省由托盘自行解析同目录 `autosync.conf.yaml`。非 Windows 返回未实现错误，退出码 `1`。
+退出码 `0`。`--config` 指定托盘配置路径（相对路径转绝对），缺省由托盘自行解析 `~/.autosync/autosync.conf.yaml`。非 Windows 不支持（返回错误，退出码 `1`）。
 
 ## uninstall
 
