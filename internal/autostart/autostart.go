@@ -6,7 +6,7 @@ package autostart
 
 import "errors"
 
-// AppName 注册表值名 / systemd unit 名 / 自启标识（固定）。
+// AppName 注册表值名（Windows）/ 自启标识（跨平台常量）。
 const AppName = "AutoSync"
 
 // ErrNotImplemented 表示当前平台未实现开机自启。

@@ -74,16 +74,16 @@ function Invoke-BuildMacosDmg { bash macos/build-dmg.sh }
 
 # 打包 Linux tarball（amd64 + arm64，纯 Go 交叉编译；含二进制 + 配置模板 + install.sh + README）
 function Invoke-PackageLinux {
-    New-Item -ItemType Directory -Force -Path dist/stage-amd64, dist/stage-arm64 | Out-Null
+    New-Item -ItemType Directory -Force -Path dist/autosync-linux-amd64, dist/autosync-linux-arm64 | Out-Null
     $env:CGO_ENABLED = "0"
-    $env:GOOS = "linux"; $env:GOARCH = "amd64"; go build -o dist/stage-amd64/autosync ./cmd/autosync
-    $env:GOOS = "linux"; $env:GOARCH = "arm64"; go build -o dist/stage-arm64/autosync ./cmd/autosync
+    $env:GOOS = "linux"; $env:GOARCH = "amd64"; go build -o dist/autosync-linux-amd64/autosync ./cmd/autosync
+    $env:GOOS = "linux"; $env:GOARCH = "arm64"; go build -o dist/autosync-linux-arm64/autosync ./cmd/autosync
     $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
     foreach ($arch in @("amd64","arm64")) {
-        Copy-Item autosync.conf.example.yaml, scripts/install-linux.sh, scripts/README-install-linux.md "dist/stage-$arch/"
-        tar -czf "dist/autosync-linux-$arch.tar.gz" -C "dist/stage-$arch" .
+        Copy-Item autosync.conf.example.yaml, scripts/install-linux.sh, scripts/README-install-linux.md "dist/autosync-linux-$arch/"
+        tar -czf "dist/autosync-linux-$arch.tar.gz" -C dist "autosync-linux-$arch"
     }
-    Remove-Item -Recurse -Force dist/stage-amd64, dist/stage-arm64
+    Remove-Item -Recurse -Force dist/autosync-linux-amd64, dist/autosync-linux-arm64
     Write-Host "Linux tarball：dist/autosync-linux-{amd64,arm64}.tar.gz"
 }
 

@@ -107,7 +107,7 @@ $ autosync install
 
 写 `~/.config/systemd/user/autosync.service`（`ExecStart` 调 `daemon`）+ `systemctl --user enable --now`。提示 `loginctl enable-linger $USER` 以开机即启（无需登录）。退出码 `0`。
 
-Windows 自启命令带 `--background` 后台启动（不弹窗口）；Linux 自启由 systemd unit `ExecStart` 调 `daemon`。`--config` 指定配置路径（Windows 相对路径转绝对），缺省由守护自行解析 `autosync.conf.yaml`。macOS 返回未实现（壳管 SMAppService）。
+Windows 自启命令带 `--background` 后台启动（不弹窗口）；Linux 自启由 systemd unit `ExecStart` 调 `daemon`。`--config` 指定配置路径（相对路径转绝对，全平台），缺省由守护自行解析 `autosync.conf.yaml`。macOS 返回未实现（壳管 SMAppService）。
 
 ## uninstall
 

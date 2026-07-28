@@ -62,14 +62,14 @@ build-macos-dmg:
 
 # 打包 Linux tarball（amd64 + arm64，纯 Go 交叉编译；含二进制 + 配置模板 + install.sh + README）
 package-linux:
-	mkdir -p dist/stage-amd64 dist/stage-arm64
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o dist/stage-amd64/autosync ./cmd/autosync
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build -o dist/stage-arm64/autosync ./cmd/autosync
-	cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/stage-amd64/
-	cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/stage-arm64/
-	tar -czf dist/autosync-linux-amd64.tar.gz -C dist/stage-amd64 .
-	tar -czf dist/autosync-linux-arm64.tar.gz -C dist/stage-arm64 .
-	rm -rf dist/stage-amd64 dist/stage-arm64
+	mkdir -p dist/autosync-linux-amd64 dist/autosync-linux-arm64
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o dist/autosync-linux-amd64/autosync ./cmd/autosync
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build -o dist/autosync-linux-arm64/autosync ./cmd/autosync
+	cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/autosync-linux-amd64/
+	cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/autosync-linux-arm64/
+	tar -czf dist/autosync-linux-amd64.tar.gz -C dist autosync-linux-amd64
+	tar -czf dist/autosync-linux-arm64.tar.gz -C dist autosync-linux-arm64
+	rm -rf dist/autosync-linux-amd64 dist/autosync-linux-arm64
 
 clean:
 	rm -f AutoSync.exe AutoSync-CLI.exe autosync-engine-darwin-amd64 autosync-engine-darwin-arm64 autosync-linux-amd64 autosync-linux-arm64
