@@ -1,10 +1,10 @@
 # API · 命令接口
 
-> CLI 即用户接口。请求 = 命令行调用，响应 = 标准输出 + 退出码。无子命令时默认进入托盘守护（`tray`）。
+> CLI 即用户接口。请求 = 命令行调用，响应 = 标准输出 + 退出码。无子命令时按平台默认守护：Windows 托盘 / macOS 引擎 / Linux daemon。
 
 ## 通用
 
-- 配置文件默认 `<数据目录>/config.yaml`，`--config` 覆盖路径。托盘多任务配置为 `<数据目录>/autosync.conf.yaml`。
+- 配置文件默认 `<数据目录>/config.yaml`，`--config` 覆盖路径。多任务配置为 `<数据目录>/autosync.conf.yaml`（托盘/daemon 共用）。
 - byproduct 统一在数据目录：日志 `logs/autosync.log`、状态 `state/`、锁 `locks/`。数据目录为各平台原生路径（Windows `%AppData%\AutoSync`、macOS `~/Library/Application Support/AutoSync`、Linux `~/.config/AutoSync`），可用 `AUTOSYNC_DATA_DIR` 覆盖。
 - `show_console: true` 时日志同时输出到控制台。
 - 退出码：`0` 成功 / 静默跳过；`1` 同步失败或冲突中止。
@@ -85,10 +85,10 @@ AutoSync 状态
 
 ## install
 
-设置开机自启：写注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，登录即启动托盘守护。
+设置开机自启：Windows 写注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 启动托盘守护；Linux 写 systemd user service 启动 daemon。macOS 由 Swift 壳 SMAppService 管理（Go 端返回未实现）。
 
 ```
-autosync install [--config <tray-conf>]
+autosync install [--config <conf>]
 ```
 
 **请求**
@@ -97,37 +97,45 @@ autosync install [--config <tray-conf>]
 $ autosync install
 ```
 
-**响应**
+**响应（Windows）**
 
 ```
 ✅ 已设置开机自启："D:\AutoSync\AutoSync.exe" tray --background
 ```
-退出码 `0`。自启命令带 `--background` 后台启动（不弹窗口），登录即静默守护；`--config` 指定托盘配置路径（相对路径转绝对），缺省由托盘自行解析 `~/.autosync/autosync.conf.yaml`。非 Windows 不支持（返回错误，退出码 `1`）。
+
+**响应（Linux）**
+
+写 `~/.config/systemd/user/autosync.service`（`ExecStart` 调 `daemon`）+ `systemctl --user enable --now`。提示 `loginctl enable-linger $USER` 以开机即启（无需登录）。退出码 `0`。
+
+Windows 自启命令带 `--background` 后台启动（不弹窗口）；Linux 自启由 systemd unit `ExecStart` 调 `daemon`。`--config` 指定配置路径（Windows 相对路径转绝对），缺省由守护自行解析 `autosync.conf.yaml`。macOS 返回未实现（壳管 SMAppService）。
 
 ## uninstall
 
-移除开机自启注册表项。
+移除开机自启：Windows 删注册表项；Linux `systemctl --user disable --now` + 删 unit 文件。
 
 ```
 autosync uninstall
 ```
 
-**请求**
-
-```
-$ autosync uninstall
-```
-
-**响应**
-
-```
-✅ 已移除开机自启
-```
 退出码 `0`。
 
-## V1.1 托盘模式
+## daemon
 
-无参数启动托盘守护进程（Fyne 窗口 + 托盘 + 内置定时器）。
+前台多任务守护（Linux 主用法；复用 TaskScheduler，无 GUI）。systemd user service 的 `ExecStart` 指向本命令。
+
+```
+autosync daemon [--config <conf>]
+```
+
+- 加载 `autosync.conf.yaml` 多任务，每任务独立 ticker 定时同步（启动即触发首次同步）。
+- 获取守护级单实例锁（`autosync.daemon.lock`），防多实例；第二实例退出码 `1`。
+- 阻塞等待 SIGINT/SIGTERM 优雅退出（Ctrl+C 或 `systemctl --user stop autosync`）。
+- 通知走 beeep（Linux: D-Bus → notify-send → kdialog）。
+- 无运行时控制 IPC：手动同步用 `autosync sync` 单次，暂停靠编辑配置后重启 daemon（见 [TODO](TODO.md) 后续方向）。
+
+## tray（V1.1 托盘模式）
+
+无参数启动托盘守护进程（Fyne 窗口 + 托盘 + 内置定时器，Windows）。
 
 ```
 autosync                      # 启动托盘守护（双击等同，弹出配置窗口）
@@ -160,6 +168,8 @@ autosync tray --background    # 后台启动（不弹窗口，供开机自启 / 
 | `ignore` | 否 | 见下 | 追加到 repo_dir/.gitignore 的条目 |
 
 `ignore` 默认：`*.tmp`、`Thumbs.db`、`desktop.ini`、`.DS_Store`、`autosync.log`、`autosync.state.json`、`config.yaml`。
+
+多任务配置（`autosync.conf.yaml`）顶层为 `tasks: [...]`，每项 `name` + 上述字段（`name` 唯一）。模板见 `autosync.conf.example.yaml`。
 
 ## 通知策略
 

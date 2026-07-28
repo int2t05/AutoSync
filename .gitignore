@@ -7,6 +7,8 @@
 /autosync-engine-darwin-amd64
 /autosync-engine-darwin-arm64
 /autosync-linux
+/autosync-linux-amd64
+/autosync-linux-arm64
 /dist/
 *.dmg
 

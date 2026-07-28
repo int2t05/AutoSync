@@ -47,3 +47,13 @@ func IsEnabled() bool {
 	_, _, err = k.GetStringValue(AppName)
 	return err == nil
 }
+
+// BuildRunCommand 构造开机自启的启动命令：以 --background 后台模式启动托盘守护（不弹配置窗口）。
+// configPath 非空时追加 --config 指定配置路径，否则用默认配置。
+func BuildRunCommand(exePath, configPath string) string {
+	cmd := "\"" + exePath + "\" tray --background"
+	if configPath != "" {
+		cmd += " --config \"" + configPath + "\""
+	}
+	return cmd
+}

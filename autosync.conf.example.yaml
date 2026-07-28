@@ -1,0 +1,21 @@
+# AutoSync 多任务配置模板 —— 复制为 ~/.config/AutoSync/autosync.conf.yaml
+# daemon/systemd 守护读取此文件；字段与 config.example.yaml 单任务一致，外层包 tasks 列表。
+# 每个任务独立 state/lock，互不干扰。
+#
+# Windows 反斜杠路径在 YAML 中须单引号包裹（如 'D:\Folder'）；Linux/macOS 路径无需引号。
+
+tasks:
+  - name: docs
+    repo_dir: "/home/user/MySyncFolder"
+    remote_url: "git@github.com:yourname/your-repo.git"
+    branch: main
+    interval: 1m
+    conflict_strategy: local_wins
+    ignore: ["*.tmp", ".DS_Store"]
+
+  - name: code
+    repo_dir: "/home/user/Code"
+    remote_url: "git@github.com:yourname/code.git"
+    branch: main
+    interval: 2m
+    conflict_strategy: remote_wins

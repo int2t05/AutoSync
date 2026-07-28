@@ -1,9 +1,9 @@
 # AutoSync 构建/测试脚本
-# 用法：make test | make build | make build-all | make vet
+# 用法：make test | make build | make build-all | make package-linux | make vet
 
 GO ?= go
 
-.PHONY: test test-race vet fmt tidy build build-cli build-all icons build-macos-engine build-macos-app build-macos-dmg clean
+.PHONY: test test-race vet fmt tidy build build-cli build-all icons build-macos-engine build-macos-app build-macos-dmg package-linux clean
 
 # 运行全部测试（test/ 目录，真实数据）
 test:
@@ -31,13 +31,14 @@ build:
 build-cli:
 	$(GO) build -o AutoSync-CLI.exe ./cmd/autosync
 
-# 三平台编译：Windows 托盘 exe + macOS 引擎（amd64/arm64，universal 合并见 build-macos-engine）+ Linux CLI（预留）
-# macOS 引擎纯 Go 可交叉编译；universal 二进制合并需 macOS 主机 lipo（M7 build-macos-engine）
+# 三平台编译：Windows 托盘 exe + macOS 引擎（amd64/arm64）+ Linux CLI（amd64/arm64）
+# macOS 引擎纯 Go 可交叉编译；universal 二进制合并需 macOS 主机 lipo（build-macos-engine）
 build-all:
 	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
 	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-engine-darwin-amd64 ./cmd/autosync
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 $(GO) build -o autosync-engine-darwin-arm64 ./cmd/autosync
-	GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-linux ./cmd/autosync
+	GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-linux-amd64 ./cmd/autosync
+	GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 $(GO) build -o autosync-linux-arm64 ./cmd/autosync
 
 # 生成图标资源：SVG→PNG（cmd/genicon）+ Windows exe 图标 .syso（go-winres）
 # 仅在 icon.svg 改动后运行；.syso 已提交，常规构建无需执行。
@@ -59,6 +60,17 @@ build-macos-app:
 build-macos-dmg:
 	bash macos/build-dmg.sh
 
+# 打包 Linux tarball（amd64 + arm64，纯 Go 交叉编译；含二进制 + 配置模板 + install.sh + README）
+package-linux:
+	mkdir -p dist/stage-amd64 dist/stage-arm64
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o dist/stage-amd64/autosync ./cmd/autosync
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build -o dist/stage-arm64/autosync ./cmd/autosync
+	cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/stage-amd64/
+	cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/stage-arm64/
+	tar -czf dist/autosync-linux-amd64.tar.gz -C dist/stage-amd64 .
+	tar -czf dist/autosync-linux-arm64.tar.gz -C dist/stage-arm64 .
+	rm -rf dist/stage-amd64 dist/stage-arm64
+
 clean:
-	rm -f AutoSync.exe AutoSync-CLI.exe autosync-engine-darwin-amd64 autosync-engine-darwin-arm64 autosync-linux
+	rm -f AutoSync.exe AutoSync-CLI.exe autosync-engine-darwin-amd64 autosync-engine-darwin-arm64 autosync-linux-amd64 autosync-linux-arm64
 	rm -rf dist

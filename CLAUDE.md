@@ -48,12 +48,14 @@ go vet ./...
 GOOS=darwin GOARCH=amd64 go build -o /dev/null ./cmd/autosync
 GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/autosync
 GOOS=linux  GOARCH=amd64 go build -o /dev/null ./cmd/autosync
+GOOS=linux  GOARCH=arm64 go build -o /dev/null ./cmd/autosync
 
 # Makefile（若已安装 make）
 make test        # go test ./...
 make build       # Windows 双版本
 make build-all   # 三平台交叉编译
 make build-macos-app  # macOS .app（需 macOS 主机 + xcodegen + Xcode）
+make package-linux    # Linux tarball（amd64+arm64，含 install.sh + 配置模板）
 ```
 
 ## 5. 项目结构
@@ -72,7 +74,7 @@ make build-macos-app  # macOS .app（需 macOS 主机 + xcodegen + Xcode）
 | `internal/configstore` | 多任务配置 Store（autosync.conf.yaml，CRUD + 持久化）|
 | `internal/tasksched` | 任务调度：每任务 ticker + TaskRunner 复用 Syncer |
 | `internal/tray` | 托盘守护应用（Fyne，构建标签 traygui 隔离）|
-| `internal/autostart` | 开机自启（Windows 注册表 Run 键 / macOS stub 由壳管 SMAppService / Linux stub 预留）|
+| `internal/autostart` | 开机自启（Windows 注册表 Run 键 / macOS stub 由壳管 SMAppService / Linux systemd user service）|
 | `internal/assets` | 嵌入图标资源（icon.svg → icon.png，供托盘/窗口/exe）|
 | `internal/engine` | engine 子命令 IPC（macOS Swift 壳经 stdin/stdout JSON 调用）|
 | `test/` | **所有测试代码**（真实数据，禁止 mock）|

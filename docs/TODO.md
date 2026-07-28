@@ -9,7 +9,7 @@
 | dry-run 不联网 | 预览可能误报 UpToDate | 跳过 fetch，基于陈旧远程引用判定，远程已领先时仍显示"一致" |
 | local_wins 并发覆盖 | 多设备真并发时最后同步者覆盖 | 已知权衡；真并发场景建议改 `abort` 手动处理 |
 | backup 清理无跨设备协调 | 一端清理了另一端未拉取的备份 | 清理仅按本地+远程引用，不感知其他设备是否已恢复 |
-| Linux 调度未实现 | Linux 需手动配 cron | `install`/`uninstall` 在 Linux 返回未实现；macOS 已由 Swift 壳 SMAppService 管理 |
+| daemon 无运行时控制 IPC | Linux daemon 不能手动同步/暂停 | 不像 Win 托盘/macOS 壳有菜单；暂靠 `autosync sync` 单次 + 编辑配置重启 daemon |
 | 通知不分级 | 信息/警告/错误图标一致 | beeep 投递统一默认图标 |
 | 连续失败无降噪 | 持续失败会重复通知 | `ConsecutiveFailures` 字段已预留未启用 |
 
@@ -22,27 +22,33 @@ V1.1 将 CLI 一次性工具升级为托盘常驻守护应用（方案 A），�
 - **开机自启**：注册表 Run 键（`install`/`uninstall` 新语义，托盘菜单可切换）。
 - **右键手动同步 / 暂停**：托盘菜单对指定任务立即触发或暂停。
 - **CLI 保留**：`sync`/`status` 供脚本/无头。
-- **byproduct 集中**：配置/日志/状态/锁统一在 `~/.autosync/`，exe 位置独立。
+- **byproduct 集中**：配置/日志/状态/锁统一在数据目录，exe 位置独立。
 - **自有图标**：托盘/窗口/exe 自有 SVG 图标。
+
+## V1.2：三平台守护（已完成）
+
+- **macOS**：Swift `MenuBarExtra` 壳 + Go 引擎子进程（JSON stdin/stdout IPC）；SMAppService 自启；flock 单实例。
+- **Linux**：`daemon` 子命令（复用 TaskScheduler，无 GUI）+ systemd user service 自启；tarball 打包（amd64/arm64）；手编多任务 YAML。
+- **路径原生**：byproduct 走 `os.UserConfigDir()`（Win `%AppData%`/macOS `~/Library`/Linux `~/.config`）。
 
 ## 后续方向
 
 ```mermaid
 flowchart LR
-  NOW[V1.1: 托盘守护] --> A[macOS/Linux 托盘自启]
-  NOW --> B[实时文件监听]
+  NOW[V1.2: 三平台守护] --> B[实时文件监听]
   NOW --> C[HTTPS token 引导]
   NOW --> D[连续失败降噪]
   NOW --> E[backup 清理增强]
+  NOW --> F[daemon 运行时控制]
 ```
 
-- **Linux 托盘自启**：cron 实现非 Windows 自启（macOS 已由 SMAppService 完成）。
 - **实时文件监听**：inotify/FSEvents 替代轮询，亚分钟级延迟。
 - **HTTPS token 引导**：降低 SSH 凭证配置门槛。
 - **连续失败降噪**：启用 `ConsecutiveFailures`，指数退避告警。
 - **backup 清理增强**：按时间过期、跨设备协调。
 - **macOS 代码签名 + 公证**：取得 Developer ID 后用 notarytool 公证，移除 `xattr` 手动步骤。
 - **macOS engine 崩溃重启策略**：壳侧指数退避最多 3 次，可配置化。
+- **daemon 运行时控制**：Linux daemon 加 SIGHUP Reload 或 Unix socket，支持手动同步/暂停（对齐 Win/macOS 菜单能力）。
 
 ### 架构优化（审计延后）
 

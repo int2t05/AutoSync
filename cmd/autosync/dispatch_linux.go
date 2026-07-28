@@ -1,8 +1,8 @@
-// dispatch_linux.go Linux 无参数默认 CLI 一次性同步（预留，无 GUI 守护）。
+// dispatch_linux.go Linux 无参数默认进入 daemon 守护（前台多任务同步，对齐 Win 托盘/macOS 引擎的常驻语义）。
 //
 //go:build !windows && !darwin
 
 package main
 
-// defaultRun 平台分流：Linux 无参数默认 CLI 同步（预留）。
-func defaultRun(rest []string) int { return runSync(rest) }
+// defaultRun 平台分流：Linux 无参数默认守护（autosync daemon）。
+func defaultRun(rest []string) int { return runDaemon(rest) }

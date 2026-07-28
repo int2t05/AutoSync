@@ -101,3 +101,16 @@ M4 之后的收尾改进（代码已落地）：
 - 跨平台：核心逻辑不依赖平台 syscall；Fyne 跨平台；autostart 用构建标签隔离 Windows。
 - 中文注释，文件头 + 函数注释，`// TODO:` 标待优化。
 - 复用 V1.0 引擎，不重写 Syncer/gitop/notify/state/lock。
+
+## V1.2 Linux：CLI + systemd 守护
+
+把 Linux 从"CLI 预留"升级为正式守护：`daemon` 子命令（复用 TaskScheduler，无 GUI）+ systemd user service 自启 + tarball 打包。对齐 Syncthing/Rclone，避开 Linux 托盘碎片化（GNOME 默认不支持、Wayland 不稳）。完整设计见会话 plan 文件 plan-logical-twilight.md。
+
+| 里程碑 | 范围 |
+|--------|------|
+| L1 | `daemon` 子命令（setupTrayEnv + DaemonLock + TaskScheduler + SIGINT/SIGTERM 信号退出）+ dispatch_linux 默认分流 daemon + 子进程测试 |
+| L2 | 拆 `autostart_other.go` → `autostart_linux.go`（systemd user service 真实现）+ `autostart_darwin.go`（stub）+ BuildRunCommand 平台化 |
+| L3 | `package-linux` tarball（amd64+arm64 + install.sh + 配置模板）+ `autosync.conf.example.yaml` 多任务模板 |
+| L4 | 文档（README/tech/api/TODO/CLAUDE）+ Linux CI（`.github/workflows/linux.yml`） |
+
+**关键决策**：Linux 无 GUI（托盘碎片化）；daemon 无运行时控制 IPC（手动同步靠 `autosync sync` 单次，暂停靠编辑配置重启，列 TODO 后续加 SIGHUP Reload / socket）。

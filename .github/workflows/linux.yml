@@ -1,0 +1,42 @@
+# linux.yml 在 ubuntu runner 上验证 Linux 构建 + 测试 + arm64 交叉编译 + tarball 打包。
+# 公开仓库 GitHub Actions 免费。autostart_linux.go 仅 Linux 编译，本工作流守护其正确性。
+name: Linux 构建
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: go build + vet + test
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./...
+
+      - name: arm64 交叉编译验证
+        run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/autosync
+
+      - name: 打包 tarball（amd64）
+        run: |
+          mkdir -p dist/stage-amd64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/stage-amd64/autosync ./cmd/autosync
+          cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/stage-amd64/
+          tar -czf dist/autosync-linux-amd64.tar.gz -C dist/stage-amd64 .
+
+      - name: 上传 tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: autosync-linux-amd64
+          path: dist/autosync-linux-amd64.tar.gz

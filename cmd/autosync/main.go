@@ -43,6 +43,8 @@ func run(args []string) int {
 		return runTray(rest)
 	case "engine":
 		return runEngine(rest)
+	case "daemon":
+		return runDaemon(rest)
 	default:
 		return defaultRun(rest) // 无子命令：平台分流
 	}
@@ -52,7 +54,7 @@ func run(args []string) int {
 func parseCommand(args []string) (cmd string, rest []string) {
 	if len(args) > 0 {
 		switch args[0] {
-		case "sync", "status", "install", "uninstall", "tray", "engine":
+		case "sync", "status", "install", "uninstall", "tray", "engine", "daemon":
 			return args[0], args[1:]
 		}
 	}

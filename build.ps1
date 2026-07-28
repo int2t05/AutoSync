@@ -1,11 +1,11 @@
 # build.ps1 — AutoSync 构建/测试脚本（Windows PowerShell）
-# 用法：.\build.ps1 <test|vet|build|build-cli|build-all|clean>
+# 用法：.\build.ps1 <test|vet|build|build-cli|build-all|package-linux|clean>
 # 默认目标：build。需系统已安装 go 并在 PATH，或先 $env:PATH += ";D:\DevelopTools\go\bin"
 # 托盘构建（build/build-all）需 CGO + gcc（mingw），用 -tags traygui 启用 Fyne 托盘。
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-cli", "build-all", "icons", "build-macos-engine", "build-macos-app", "build-macos-dmg", "clean")]
+    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-cli", "build-all", "icons", "build-macos-engine", "build-macos-app", "build-macos-dmg", "package-linux", "clean")]
     [string]$Target = "build"
 )
 
@@ -30,19 +30,20 @@ function Invoke-BuildCli {
     Write-Host "构建完成：AutoSync-CLI.exe（CLI，无托盘）"
 }
 
-# 三平台编译：Windows 托盘 exe + macOS 引擎（amd64/arm64，universal 合并见 build-macos-engine）+ Linux CLI（预留）
+# 三平台编译：Windows 托盘 exe + macOS 引擎（amd64/arm64）+ Linux CLI（amd64/arm64）
 function Invoke-BuildAll {
     go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
     $env:CGO_ENABLED = "0"
     $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o autosync-engine-darwin-amd64 ./cmd/autosync
     $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -o autosync-engine-darwin-arm64 ./cmd/autosync
-    $env:GOOS = "linux";  $env:GOARCH = "amd64"; go build -o autosync-linux ./cmd/autosync
+    $env:GOOS = "linux";  $env:GOARCH = "amd64"; go build -o autosync-linux-amd64 ./cmd/autosync
+    $env:GOOS = "linux";  $env:GOARCH = "arm64"; go build -o autosync-linux-arm64 ./cmd/autosync
     $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
-    Write-Host "三平台编译完成：AutoSync.exe / autosync-engine-darwin-{amd64,arm64} / autosync-linux"
+    Write-Host "三平台编译完成：AutoSync.exe / autosync-engine-darwin-{amd64,arm64} / autosync-linux-{amd64,arm64}"
 }
 
 function Invoke-Clean {
-    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe, autosync-engine-darwin-amd64, autosync-engine-darwin-arm64, autosync-linux
+    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe, autosync-engine-darwin-amd64, autosync-engine-darwin-arm64, autosync-linux-amd64, autosync-linux-arm64
     Remove-Item -ErrorAction SilentlyContinue -Force -Recurse dist
 }
 
@@ -71,6 +72,21 @@ function Invoke-BuildMacosApp { bash macos/build-app.sh }
 # 打包 macOS DMG（需 macOS 主机）
 function Invoke-BuildMacosDmg { bash macos/build-dmg.sh }
 
+# 打包 Linux tarball（amd64 + arm64，纯 Go 交叉编译；含二进制 + 配置模板 + install.sh + README）
+function Invoke-PackageLinux {
+    New-Item -ItemType Directory -Force -Path dist/stage-amd64, dist/stage-arm64 | Out-Null
+    $env:CGO_ENABLED = "0"
+    $env:GOOS = "linux"; $env:GOARCH = "amd64"; go build -o dist/stage-amd64/autosync ./cmd/autosync
+    $env:GOOS = "linux"; $env:GOARCH = "arm64"; go build -o dist/stage-arm64/autosync ./cmd/autosync
+    $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
+    foreach ($arch in @("amd64","arm64")) {
+        Copy-Item autosync.conf.example.yaml, scripts/install-linux.sh, scripts/README-install-linux.md "dist/stage-$arch/"
+        tar -czf "dist/autosync-linux-$arch.tar.gz" -C "dist/stage-$arch" .
+    }
+    Remove-Item -Recurse -Force dist/stage-amd64, dist/stage-arm64
+    Write-Host "Linux tarball：dist/autosync-linux-{amd64,arm64}.tar.gz"
+}
+
 switch ($Target) {
     "test"      { Invoke-Test }
     "test-race" { Invoke-TestRace }
@@ -84,5 +100,6 @@ switch ($Target) {
     "build-macos-engine" { Invoke-BuildMacosEngine }
     "build-macos-app"    { Invoke-BuildMacosApp }
     "build-macos-dmg"    { Invoke-BuildMacosDmg }
+    "package-linux"      { Invoke-PackageLinux }
     "clean"     { Invoke-Clean }
 }

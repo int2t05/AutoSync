@@ -5,7 +5,7 @@
 > 基于系统 git 的跨平台文件夹双向同步工具。双击即用，托盘常驻，自动提交、合并、冲突处理，完全无感。
 
 ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
+![Platform](<https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue>)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 把任意本地文件夹变成自动同步的 git 仓库——本地改动自动提交推送，其他设备的改动自动 rebase 合并，冲突按策略自动处理且零丢失。双击 exe 弹配置窗口，填好多任务后最小化到托盘，后台定时同步，右键手动触发。
@@ -35,21 +35,27 @@ autosync sync --dry-run        # CLI 一次性只读预览
 
 # macOS：菜单栏守护（Swift MenuBarExtra 壳 + Go 引擎子进程，须 macOS 主机）
 make build-macos-app           # 产 dist/AutoSync.app（需 xcodegen + Xcode，见 macos/README-install.md）
+
+# Linux：daemon 守护 + systemd 自启（无 GUI，对齐 Syncthing/Rclone）
+make package-linux             # 产 dist/autosync-linux-{amd64,arm64}.tar.gz
+# 解压 tarball → bash install-linux.sh → 编辑 ~/.config/AutoSync/autosync.conf.yaml
+autosync daemon                # 前台多任务守护（systemd 即调用此命令）
+autosync install               # 注册 systemd user service 开机自启
 ```
 
 ## 数据目录
 
 配置与 byproduct（日志/状态/锁）统一在各平台原生数据目录，exe 位置独立——可装进 `Program Files`、可在任意位置双击。可用 `AUTOSYNC_DATA_DIR` 覆盖。
 
-| 平台 | 数据目录 |
-|------|----------|
-| Windows | `%AppData%\AutoSync` |
-| macOS | `~/Library/Application Support/AutoSync` |
-| Linux | `~/.config/AutoSync` |
+| 平台    | 数据目录                                   |
+| ------- | ------------------------------------------ |
+| Windows | `%AppData%\AutoSync`                     |
+| macOS   | `~/Library/Application Support/AutoSync` |
+| Linux   | `~/.config/AutoSync`                     |
 
 ```
 <数据目录>/
-  autosync.conf.yaml   # 托盘多任务配置（GUI 管理）
+  autosync.conf.yaml   # 多任务配置（daemon/托盘共用，Linux 手编 / Win/macOS GUI 管理）
   config.yaml          # CLI 单任务配置
   logs/  state/  locks/
 ```
@@ -68,15 +74,15 @@ flowchart TB
   REG[注册表 Run 键] -->|登录自启| APP
 ```
 
-Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git，不内嵌 git 库。托盘用 Fyne（构建标签 `traygui` 隔离，默认构建纯 Go）。详见 [docs/tech.md](docs/tech.md)。
+Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git，不内嵌 git 库。托盘用 Fyne（构建标签 `traygui` 隔离，默认构建纯 Go）。Linux 走 `daemon` 子命令 + systemd user service（无 GUI）。详见 [docs/tech.md](docs/tech.md)。
 
 ## 平台
 
-| 平台 | 同步核心 | 托盘守护 | 开机自启 |
-|------|----------|----------|----------|
-| Windows | ✅ | ✅ Fyne | ✅ 注册表 Run 键 |
-| macOS | ✅ | ✅ MenuBarExtra（Swift 壳） | ✅ SMAppService |
-| Linux | ✅ | CLI（预留） | 手动 cron |
+| 平台    | 同步核心 | 守护                        | 开机自启         |
+| ------- | -------- | --------------------------- | ---------------- |
+| Windows | ✅       | ✅ Fyne 托盘                | ✅ 注册表 Run 键 |
+| macOS   | ✅       | ✅ MenuBarExtra（Swift 壳） | ✅ SMAppService  |
+| Linux   | ✅       | ✅ daemon 守护（无 GUI）    | ✅ systemd 自启  |
 
 ## 文档
 
@@ -84,7 +90,7 @@ Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git�
 
 ## 路线图
 
-**后续**：实时文件监听、HTTPS token 引导、连续失败降噪、托盘状态回显、macOS 代码签名公证、Linux 托盘守护。
+**后续**：实时文件监听、HTTPS token 引导、连续失败降噪、托盘状态回显、macOS 代码签名公证、daemon 运行时控制（手动同步/暂停 IPC）。
 
 完整方向见 [docs/TODO.md](docs/TODO.md)。
 
