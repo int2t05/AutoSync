@@ -15,6 +15,18 @@ const (
 	SeverityError                   // 错误
 )
 
+// String 返回 IPC notify 事件用的 severity 字符串（info/warn/error）。
+func (s Severity) String() string {
+	switch s {
+	case SeverityWarning:
+		return "warn"
+	case SeverityError:
+		return "error"
+	default:
+		return "info"
+	}
+}
+
 // Decision 是通知策略的决策结果。
 type Decision struct {
 	Notify   bool     // 是否发送通知

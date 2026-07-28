@@ -22,27 +22,20 @@ import (
 
 // Engine 持有调度器与 IPC 读写器，实现引擎子进程主循环。
 type Engine struct {
-	store  *configstore.Store
-	logger *log.Logger
-	sched  *tasksched.TaskScheduler
-	r      io.Reader
-	enc    *json.Encoder
-	mu     stdsync.Mutex // 保护 stdout 写入（事件 + ipcNotifier 并发）
+	store *configstore.Store
+	sched *tasksched.TaskScheduler
+	r     io.Reader
+	enc   *json.Encoder
+	mu    stdsync.Mutex // 保护 stdout 写入（事件 + ipcNotifier 并发）
 }
 
 // New 创建引擎。内部构造 ipcNotifier（notify 事件经 writeEvent）与 onResult（ticker 结果上报）。
+// logger 透传给调度器，引擎自身不持有。
 func New(store *configstore.Store, logger *log.Logger, r io.Reader, w io.Writer) *Engine {
-	e := &Engine{store: store, logger: logger, r: r, enc: json.NewEncoder(w)}
+	e := &Engine{store: store, r: r, enc: json.NewEncoder(w)}
 	ipcN := &ipcNotifier{e: e}
 	onResult := func(task string, res sync.SyncResult) {
-		e.writeEvent(Event{
-			Event:        "sync-result",
-			Task:         task,
-			Outcome:      res.Outcome.String(),
-			Message:      res.Message,
-			BackupBranch: res.BackupBranch,
-			At:           time.Now().Format(time.RFC3339),
-		})
+		e.writeSyncResult(0, task, res)
 	}
 	e.sched = tasksched.NewTaskScheduler(store.List(), logger, ipcN, onResult)
 	return e
@@ -80,36 +73,33 @@ func (e *Engine) handle(cmd Command) bool {
 	case "status":
 		e.writeEvent(Event{ID: cmd.ID, Event: "status", Tasks: e.taskStatuses()})
 	case "sync-now":
-		res, err := e.sched.RunNow(cmd.Task)
-		if err != nil {
-			e.writeEvent(Event{ID: cmd.ID, Event: "error", Message: err.Error()})
-			break
+		if res, err := e.sched.RunNow(cmd.Task); err != nil {
+			e.cmdError(cmd.ID, err)
+		} else {
+			e.writeSyncResult(cmd.ID, cmd.Task, res)
 		}
-		e.writeEvent(Event{
-			ID: cmd.ID, Event: "sync-result", Task: cmd.Task,
-			Outcome: res.Outcome.String(), Message: res.Message,
-			BackupBranch: res.BackupBranch, At: time.Now().Format(time.RFC3339),
-		})
 	case "pause":
 		if err := e.sched.SetPaused(cmd.Task, true); err != nil {
-			e.writeEvent(Event{ID: cmd.ID, Event: "error", Message: err.Error()})
-			break
+			e.cmdError(cmd.ID, err)
+		} else {
+			e.writeEvent(Event{ID: cmd.ID, Event: "paused", Task: cmd.Task})
 		}
-		e.writeEvent(Event{ID: cmd.ID, Event: "paused", Task: cmd.Task})
 	case "resume":
 		if err := e.sched.SetPaused(cmd.Task, false); err != nil {
-			e.writeEvent(Event{ID: cmd.ID, Event: "error", Message: err.Error()})
-			break
+			e.cmdError(cmd.ID, err)
+		} else {
+			e.writeEvent(Event{ID: cmd.ID, Event: "resumed", Task: cmd.Task})
 		}
-		e.writeEvent(Event{ID: cmd.ID, Event: "resumed", Task: cmd.Task})
 	case "config-list":
-		e.writeEvent(Event{ID: cmd.ID, Event: "config-list", Tasks: e.taskStatuses(), ConfigTasks: e.taskDTOs()})
+		ts, dtos := e.taskSnapshot()
+		e.writeEvent(Event{ID: cmd.ID, Event: "config-list", Tasks: ts, ConfigTasks: dtos})
 	case "config-save":
 		if err := e.saveConfig(cmd.Tasks); err != nil {
-			e.writeEvent(Event{ID: cmd.ID, Event: "error", Message: err.Error()})
-			break
+			e.cmdError(cmd.ID, err)
+		} else {
+			ts, dtos := e.taskSnapshot()
+			e.writeEvent(Event{ID: cmd.ID, Event: "config-saved", Tasks: ts, ConfigTasks: dtos})
 		}
-		e.writeEvent(Event{ID: cmd.ID, Event: "config-saved", Tasks: e.taskStatuses(), ConfigTasks: e.taskDTOs()})
 	case "quit":
 		e.writeEvent(Event{Event: "bye", Reason: "quit"})
 		return true
@@ -117,6 +107,24 @@ func (e *Engine) handle(cmd Command) bool {
 		e.writeEvent(Event{ID: cmd.ID, Event: "error", Message: "未知命令: " + cmd.Cmd})
 	}
 	return false
+}
+
+// cmdError 写一条带 id 的 error 事件。
+func (e *Engine) cmdError(id int, err error) {
+	e.writeEvent(Event{ID: id, Event: "error", Message: err.Error()})
+}
+
+// writeSyncResult 写一条 sync-result 事件（手动同步带 id，ticker 触发传 0 省略）。
+func (e *Engine) writeSyncResult(id int, task string, res sync.SyncResult) {
+	e.writeEvent(Event{
+		ID:           id,
+		Event:        "sync-result",
+		Task:         task,
+		Outcome:      res.Outcome.String(),
+		Message:      res.Message,
+		BackupBranch: res.BackupBranch,
+		At:           time.Now().Format(time.RFC3339),
+	})
 }
 
 // saveConfig 把 IPC 任务 DTO 转为 configstore.Task，ReplaceAll + Save + 热重载调度器。
@@ -131,27 +139,42 @@ func (e *Engine) saveConfig(dtos []*TaskDTO) error {
 	if err := e.store.Save(); err != nil {
 		return err
 	}
-	e.sched.Reload(e.store.List())
+	e.sched.Reload(tasks)
 	return nil
 }
 
-// taskStatuses 构造当前所有任务的状态投影（含运行态与上次同步结果）。
+// buildStatus 从单个执行器构造状态投影（含上次同步结果，读 state 文件）。
+func buildStatus(r *tasksched.TaskRunner) TaskStatus {
+	t := r.Task()
+	ts := TaskStatus{Name: t.Name, RepoDir: t.RepoDir, Interval: t.Interval, Paused: r.Paused()}
+	if st, err := state.New(t.ResolveStateFile()).Load(); err == nil && !st.LastSyncAt.IsZero() {
+		ts.LastSyncAt = st.LastSyncAt.Format(time.RFC3339)
+		ts.LastOutcome = st.LastOutcome
+		ts.LastMessage = st.LastMessage
+	}
+	return ts
+}
+
+// taskStatuses 构造所有任务的状态投影（ready/status 事件）。
 func (e *Engine) taskStatuses() []TaskStatus {
 	runners := e.sched.Runners()
 	out := make([]TaskStatus, 0, len(runners))
 	for _, r := range runners {
-		ts := TaskStatus{
-			Name: r.Task().Name, RepoDir: r.Task().RepoDir,
-			Interval: r.Task().Interval, Paused: r.Paused(),
-		}
-		if st, err := state.New(r.Task().ResolveStateFile()).Load(); err == nil && !st.LastSyncAt.IsZero() {
-			ts.LastSyncAt = st.LastSyncAt.Format(time.RFC3339)
-			ts.LastOutcome = st.LastOutcome
-			ts.LastMessage = st.LastMessage
-		}
-		out = append(out, ts)
+		out = append(out, buildStatus(r))
 	}
 	return out
+}
+
+// taskSnapshot 单遍历构造状态投影与完整配置投影（config-list/config-saved 事件）。
+func (e *Engine) taskSnapshot() ([]TaskStatus, []*TaskDTO) {
+	runners := e.sched.Runners()
+	statuses := make([]TaskStatus, 0, len(runners))
+	dtos := make([]*TaskDTO, 0, len(runners))
+	for _, r := range runners {
+		statuses = append(statuses, buildStatus(r))
+		dtos = append(dtos, taskToDTO(r.Task()))
+	}
+	return statuses, dtos
 }
 
 // writeEvent 加锁写一行 JSON 事件到 stdout（事件与 ipcNotifier 共享此锁，避免交错）。
@@ -164,61 +187,23 @@ func (e *Engine) writeEvent(ev Event) {
 // ipcNotifier 实现 notify.Notifier，经 Engine.writeEvent 写 notify 事件，委托壳投递系统通知。
 type ipcNotifier struct{ e *Engine }
 
-// Notify 写 notify 事件 JSON，severity 映射为 info/warn/error。
+// Notify 写 notify 事件 JSON，severity 经 Severity.String() 映射为 info/warn/error。
 func (n *ipcNotifier) Notify(title, body string, severity notify.Severity) error {
 	n.e.writeEvent(Event{
-		Event: "notify", Severity: severityString(int(severity)),
-		Title: title, Body: body,
+		Event:    "notify",
+		Severity: severity.String(),
+		Title:    title,
+		Body:     body,
 	})
 	return nil
 }
 
-// dtoToTask 把 IPC 任务 DTO 转为 configstore.Task（字段一一对应）。
+// dtoToTask 把 IPC 任务 DTO 转为 configstore.Task（内嵌 Config 直接拷贝，无字段镜像）。
 func dtoToTask(d *TaskDTO) *configstore.Task {
-	return &configstore.Task{
-		Name: d.Name,
-		Config: config.Config{
-			RepoDir:          d.RepoDir,
-			RemoteURL:        d.RemoteURL,
-			Remote:           d.Remote,
-			Branch:           d.Branch,
-			Interval:         d.Interval,
-			ConflictStrategy: d.ConflictStrategy,
-			BackupKeep:       d.BackupKeep,
-			RetryCount:       d.RetryCount,
-			RetryBaseDelay:   d.RetryBaseDelay,
-			CommitMsgFormat:  d.CommitMsgFormat,
-			ShowConsole:      d.ShowConsole,
-			Ignore:           d.Ignore,
-		},
-	}
+	return &configstore.Task{Name: d.Name, Config: d.Config}
 }
 
-// taskDTOs 构造当前所有任务的完整配置投影（config-list/config-saved 事件）。
-func (e *Engine) taskDTOs() []*TaskDTO {
-	tasks := e.store.List()
-	out := make([]*TaskDTO, 0, len(tasks))
-	for _, t := range tasks {
-		out = append(out, taskToDTO(t))
-	}
-	return out
-}
-
-// taskToTask 把 configstore.Task 转为 IPC 任务 DTO（字段一一对应）。
+// taskToDTO 把 configstore.Task 转为 IPC 任务 DTO（内嵌 Config 直接拷贝）。
 func taskToDTO(t *configstore.Task) *TaskDTO {
-	return &TaskDTO{
-		Name:             t.Name,
-		RepoDir:          t.RepoDir,
-		RemoteURL:        t.RemoteURL,
-		Remote:           t.Remote,
-		Branch:           t.Branch,
-		Interval:         t.Interval,
-		ConflictStrategy: t.ConflictStrategy,
-		BackupKeep:       t.BackupKeep,
-		RetryCount:       t.RetryCount,
-		RetryBaseDelay:   t.RetryBaseDelay,
-		CommitMsgFormat:  t.CommitMsgFormat,
-		ShowConsole:      t.ShowConsole,
-		Ignore:           t.Ignore,
-	}
+	return &TaskDTO{Name: t.Name, Config: t.Config}
 }

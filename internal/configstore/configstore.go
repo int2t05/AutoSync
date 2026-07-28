@@ -189,18 +189,16 @@ func (s *Store) Delete(name string) error {
 func (s *Store) ReplaceAll(tasks []*Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	seen := make(map[string]bool)
 	for _, t := range tasks {
 		if t.Name == "" {
 			return fmt.Errorf("任务名不能为空")
 		}
-		if seen[t.Name] {
-			return fmt.Errorf("任务名重复: %q", t.Name)
-		}
-		seen[t.Name] = true
 		if err := t.Normalize(); err != nil {
 			return fmt.Errorf("任务 %q 校验失败: %w", t.Name, err)
 		}
+	}
+	if err := checkUniqueNames(tasks); err != nil {
+		return err
 	}
 	s.tasks = append([]*Task(nil), tasks...)
 	return nil

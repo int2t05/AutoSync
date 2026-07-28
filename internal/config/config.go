@@ -15,20 +15,20 @@ import (
 // Config 描述一次同步运行所需的全部配置。
 // 字段与 config.yaml 一一对应；带 yaml:"-" 的字段为解析后的派生值，不来自配置文件。
 type Config struct {
-	RepoDir           string        `yaml:"repo_dir"`            // 同步目标文件夹（必填）
-	RemoteURL         string        `yaml:"remote_url"`          // 远程仓库地址，首次初始化用（必填）
-	Remote            string        `yaml:"remote"`              // 远程名，默认 origin
-	Branch            string        `yaml:"branch"`              // 同步分支，默认 main
-	Interval          string        `yaml:"interval"`            // 轮询间隔字符串，默认 "1m"
-	IntervalDur       time.Duration `yaml:"-"`                   // 解析后的轮询间隔
-	ConflictStrategy  string        `yaml:"conflict_strategy"`   // 冲突策略：local_wins|remote_wins|abort
-	BackupKeep        int           `yaml:"backup_keep"`         // backup 分支保留数，默认 10
-	RetryCount        int           `yaml:"retry_count"`         // 网络操作重试次数，默认 3
-	RetryBaseDelay    string        `yaml:"retry_base_delay"`    // 重试退避基数字符串，默认 "1s"
-	RetryBaseDelayDur time.Duration `yaml:"-"`                   // 解析后的重试退避基数
-	CommitMsgFormat   string        `yaml:"commit_msg_format"`   // 提交消息模板，默认 "auto sync: {{.Timestamp}}"
-	ShowConsole       bool          `yaml:"show_console"`        // 是否输出到控制台
-	Ignore            []string      `yaml:"ignore"`              // 写入 repo_dir/.gitignore 的条目
+	RepoDir           string        `yaml:"repo_dir" json:"repo_dir"`                       // 同步目标文件夹（必填）
+	RemoteURL         string        `yaml:"remote_url" json:"remote_url"`                   // 远程仓库地址，首次初始化用（必填）
+	Remote            string        `yaml:"remote" json:"remote,omitempty"`                 // 远程名，默认 origin
+	Branch            string        `yaml:"branch" json:"branch,omitempty"`                 // 同步分支，默认 main
+	Interval          string        `yaml:"interval" json:"interval,omitempty"`             // 轮询间隔字符串，默认 "1m"
+	IntervalDur       time.Duration `yaml:"-" json:"-"`                                      // 解析后的轮询间隔
+	ConflictStrategy  string        `yaml:"conflict_strategy" json:"conflict_strategy,omitempty"` // 冲突策略：local_wins|remote_wins|abort
+	BackupKeep        int           `yaml:"backup_keep" json:"backup_keep,omitempty"`       // backup 分支保留数，默认 10
+	RetryCount        int           `yaml:"retry_count" json:"retry_count,omitempty"`       // 网络操作重试次数，默认 3
+	RetryBaseDelay    string        `yaml:"retry_base_delay" json:"retry_base_delay,omitempty"` // 重试退避基数字符串，默认 "1s"
+	RetryBaseDelayDur time.Duration `yaml:"-" json:"-"`                                      // 解析后的重试退避基数
+	CommitMsgFormat   string        `yaml:"commit_msg_format" json:"commit_msg_format,omitempty"` // 提交消息模板，默认 "auto sync: {{.Timestamp}}"
+	ShowConsole       bool          `yaml:"show_console" json:"show_console,omitempty"`      // 是否输出到控制台
+	Ignore            []string      `yaml:"ignore" json:"ignore,omitempty"`                 // 写入 repo_dir/.gitignore 的条目
 }
 
 // defaultIgnore 是未配置 ignore 时的默认忽略条目：

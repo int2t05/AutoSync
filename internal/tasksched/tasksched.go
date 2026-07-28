@@ -23,15 +23,14 @@ type TaskRunner struct {
 	task     *configstore.Task
 	logger   *log.Logger
 	notifier notify.Notifier          // 通知投递（beeep 或 IPC 委托），依赖倒置
-	onResult func(string, sync.SyncResult)    // ticker 触发后的结果回调，可为 nil（tray 传 nil）
 	mu       stdsync.Mutex // 串行化同一任务的并发触发（tick + 手动）
 	pauseMu  stdsync.Mutex
 	paused   bool // 暂停标志：暂停时 ticker 跳过触发
 }
 
-// NewTaskRunner 创建任务执行器。notifier 注入通知投递；onResult 为 ticker 触发后的结果回调，可为 nil。
-func NewTaskRunner(task *configstore.Task, logger *log.Logger, notifier notify.Notifier, onResult func(string, sync.SyncResult)) *TaskRunner {
-	return &TaskRunner{task: task, logger: logger, notifier: notifier, onResult: onResult}
+// NewTaskRunner 创建任务执行器。notifier 注入通知投递。ticker 触发的结果回调由 TaskScheduler 持有。
+func NewTaskRunner(task *configstore.Task, logger *log.Logger, notifier notify.Notifier) *TaskRunner {
+	return &TaskRunner{task: task, logger: logger, notifier: notifier}
 }
 
 // Task 返回执行器关联的任务（供托盘查询状态）。
@@ -94,10 +93,6 @@ func (r *TaskRunner) Run() sync.SyncResult {
 			r.logger.Warn(fmt.Sprintf("任务 %s 发送通知失败: %v", r.task.Name, err))
 		}
 	}
-	// ticker 触发的结果回调（engine 经此上报 sync-result；tray 传 nil 不回调）
-	if r.onResult != nil {
-		r.onResult(r.task.Name, result)
-	}
 	return result
 }
 
@@ -118,7 +113,7 @@ type TaskScheduler struct {
 func NewTaskScheduler(tasks []*configstore.Task, logger *log.Logger, notifier notify.Notifier, onResult func(string, sync.SyncResult)) *TaskScheduler {
 	runners := make([]*TaskRunner, 0, len(tasks))
 	for _, t := range tasks {
-		runners = append(runners, NewTaskRunner(t, logger, notifier, onResult))
+		runners = append(runners, NewTaskRunner(t, logger, notifier))
 	}
 	return &TaskScheduler{runners: runners, logger: logger, notifier: notifier, onResult: onResult}
 }
@@ -153,13 +148,13 @@ func (s *TaskScheduler) Start() {
 		go func() {
 			defer s.wg.Done()
 			if !r.Paused() {
-				r.Run() // 启动时立即执行一次
+				s.report(r) // 启动时立即执行一次
 			}
 			for {
 				select {
 				case <-t.C:
 					if !r.Paused() {
-						r.Run()
+						s.report(r)
 					}
 				case <-s.stop:
 					return
@@ -218,12 +213,20 @@ func (s *TaskScheduler) runnerByName(name string) *TaskRunner {
 	return nil
 }
 
+// report 执行一次任务并经 onResult 回调上报结果（ticker 触发；手动 RunNow 不经此路径）。
+func (s *TaskScheduler) report(r *TaskRunner) {
+	res := r.Run()
+	if s.onResult != nil {
+		s.onResult(r.task.Name, res)
+	}
+}
+
 // Reload 用新任务列表重建执行器并重启 ticker（配置变更后热重载），透传 notifier 与 onResult。
 func (s *TaskScheduler) Reload(tasks []*configstore.Task) {
 	s.Stop()
 	runners := make([]*TaskRunner, 0, len(tasks))
 	for _, t := range tasks {
-		runners = append(runners, NewTaskRunner(t, s.logger, s.notifier, s.onResult))
+		runners = append(runners, NewTaskRunner(t, s.logger, s.notifier))
 	}
 	s.mu.Lock()
 	s.runners = runners

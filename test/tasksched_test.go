@@ -68,7 +68,7 @@ func TestTaskRunner_NoChanges(t *testing.T) {
 
 	task := schedTask(t, "nc", repo, remote, "1m")
 	presetGitignore(t, task, repo, remote)
-	result := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}, nil).Run()
+	result := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}).Run()
 	if result.Outcome != sync.OutcomeNoChanges {
 		t.Fatalf("Outcome=%s, 期望 NoChanges", result.Outcome)
 	}
@@ -86,7 +86,7 @@ func TestTaskRunner_Pushed(t *testing.T) {
 	writeFile(t, repo, "new.txt", "x")
 
 	task := schedTask(t, "push", repo, remote, "1m")
-	result := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}, nil).Run()
+	result := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}).Run()
 	if result.Outcome != sync.OutcomePushed {
 		t.Fatalf("Outcome=%s, 期望 Pushed", result.Outcome)
 	}
@@ -140,7 +140,7 @@ func TestTaskScheduler_RunNow(t *testing.T) {
 func TestTaskRunner_Pause(t *testing.T) {
 	d := makeTempDir(t, "autosync-repo-*")
 	task := schedTask(t, "unitpause", d, "u", "1m")
-	r := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}, nil)
+	r := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{})
 	if r.Paused() {
 		t.Error("默认应非暂停")
 	}

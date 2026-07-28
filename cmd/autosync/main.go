@@ -156,7 +156,30 @@ func runSync(rest []string) int {
 	return 0
 }
 
-// runTray 启动托盘守护：先建用户目录与日志 → 加载多任务配置 → 守护级单实例锁 → 调度器 → 托盘应用。
+// setupTrayEnv 装配托盘/engine 共享的运行时环境：用户数据目录 + 日志 + 多任务配置。
+// mode 用于启动日志（"托盘"/"engine"）。返回 store + logger + cleanup；失败返回 error。
+func setupTrayEnv(configPath, mode string) (*configstore.Store, *log.Logger, func(), error) {
+	if err := config.EnsureUserDataDirs(); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		return nil, nil, nil, err
+	}
+	logger, err := log.New(config.LogFilePath(), false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ 日志初始化失败: %v\n", err)
+		return nil, nil, nil, err
+	}
+	store, err := configstore.Load(resolveTrayConfigPath(configPath))
+	if err != nil {
+		logger.Error(fmt.Sprintf("配置加载失败: %v", err))
+		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
+		logger.Close()
+		return nil, nil, nil, err
+	}
+	logger.Info(fmt.Sprintf("AutoSync %s 启动 | 任务数=%d", mode, len(store.List())))
+	return store, logger, func() { logger.Close() }, nil
+}
+
+// runTray 启动托盘守护：装配环境 → 守护级单实例锁 → 调度器 → 托盘应用。
 // --background 供开机自启：后台启动不弹配置窗口；双击裸跑则弹出窗口供交互。
 // 无 traygui 标签构建时托盘为桩，Run 返回未启用错误。
 func runTray(rest []string) int {
@@ -167,25 +190,11 @@ func runTray(rest []string) int {
 		return 1
 	}
 
-	// 先确保用户数据目录与日志：后续配置/锁失败可写日志，便于静默版诊断
-	if err := config.EnsureUserDataDirs(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
-		return 1
-	}
-	logger, err := log.New(config.LogFilePath(), false)
+	store, logger, cleanup, err := setupTrayEnv(*configPath, "托盘")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 日志初始化失败: %v\n", err)
 		return 1
 	}
-	defer logger.Close()
-
-	store, err := configstore.Load(resolveTrayConfigPath(*configPath))
-	if err != nil {
-		logger.Error(fmt.Sprintf("配置加载失败: %v", err))
-		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
-		return 1
-	}
-	logger.Info(fmt.Sprintf("AutoSync 托盘启动 | 任务数=%d", len(store.List())))
+	defer cleanup()
 
 	// 守护级单实例锁：防止多个托盘实例
 	daemonLock := lock.New(config.DaemonLockPath())

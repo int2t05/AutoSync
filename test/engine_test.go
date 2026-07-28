@@ -219,8 +219,8 @@ func TestEngine_ConfigSave(t *testing.T) {
 	defer stdin.Close()
 	readEvent(t, stdout) // ready
 	dto := &engine.TaskDTO{
-		Name: "saved", RepoDir: repo, RemoteURL: remote,
-		Branch: "main", Interval: "1m", ConflictStrategy: "local_wins",
+		Name:   "saved",
+		Config: config.Config{RepoDir: repo, RemoteURL: remote, Branch: "main", Interval: "1m", ConflictStrategy: "local_wins"},
 	}
 	sendCmd(t, stdin, engine.Command{ID: 1, Cmd: "config-save", Tasks: []*engine.TaskDTO{dto}})
 	ev := readEventMatch(t, stdout, func(e engine.Event) bool { return e.ID == 1 })
