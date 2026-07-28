@@ -80,17 +80,25 @@ internal/lock         单实例锁（PID，跨平台）
 internal/configstore  多任务配置 Store（autosync.conf.yaml，CRUD + 持久化）
 internal/tasksched    任务调度：每任务 ticker + TaskRunner 复用 Syncer
 internal/tray         托盘守护应用（Fyne，构建标签 traygui 隔离）
-internal/autostart    开机自启（Windows 注册表 Run 键；非 Windows 不支持）
+internal/autostart    开机自启（Windows 注册表 Run 键 / macOS stub 由壳管 / Linux stub 预留）
 internal/assets       嵌入图标资源（icon.svg → icon.png，供托盘/窗口/exe）
+internal/engine       【规划 M6】engine 子命令 IPC（macOS Swift 壳经 stdin/stdout JSON 调用）
 test/                 全部测试（真实 git 临时仓库，禁止 mock）
+macos/                【规划 M7】Swift MenuBarExtra 原生壳工程（macOS GUI）
 ```
 
 ## byproduct 与路径
 
-所有 byproduct 统一存放于用户数据目录 `~/.autosync/`（可用 `AUTOSYNC_DATA_DIR` 覆盖），使 exe 位置独立（可装进只读目录、可任意位置打开）：
+所有 byproduct 统一存放于各平台原生用户数据目录（可用 `AUTOSYNC_DATA_DIR` 覆盖），使 exe 位置独立（可装进只读目录、可任意位置打开）：
+
+| 平台 | 数据目录 |
+|------|----------|
+| Windows | `%AppData%\AutoSync` |
+| macOS | `~/Library/Application Support/AutoSync` |
+| Linux | `~/.config/AutoSync` |
 
 ```
-~/.autosync/
+<数据目录>/
   config.yaml                 # CLI 单任务配置
   autosync.conf.yaml          # 托盘多任务配置
   logs/autosync.log           # 日志（CLI + 守护共享）
@@ -102,7 +110,7 @@ test/                 全部测试（真实 git 临时仓库，禁止 mock）
 
 ## 平台策略
 
-核心逻辑跨平台；平台差异用构建标签隔离（`//go:build windows` / `!windows`）。`pidAlive`、`autostart` 按平台分文件实现；`tray` 用 `traygui` 标签隔离 Fyne。路径用 `filepath`，不硬编码分隔符。
+main 分支统一维护双平台（Windows + macOS），核心逻辑跨平台；平台差异用构建标签隔离（`//go:build windows` / `darwin` / `!windows && !darwin`）。`pidAlive`、`autostart` 按平台分文件实现；`tray` 用 `traygui` 标签隔离 Fyne（Windows）；macOS GUI 由 Swift `MenuBarExtra` 原生壳承担，Go 引擎以 `engine` 子命令作子进程经 stdin/stdout JSON IPC 供壳调用（见 V1.2 架构）。Linux 为 CLI 预留。路径用 `filepath`，不硬编码分隔符。
 
 ## V1.1 架构：托盘守护
 

@@ -27,32 +27,36 @@ func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
-// run 解析子命令并分发，返回退出码。无子命令（双击/裸跑）默认进入托盘守护。
+// run 解析子命令并分发，返回退出码。无子命令时按平台分流（windows→tray / darwin→engine / linux→sync）。
 func run(args []string) int {
 	cmd, rest := parseCommand(args)
 	switch cmd {
-	case "tray":
-		return runTray(rest)
+	case "sync":
+		return runSync(rest)
 	case "status":
 		return runStatus(rest)
 	case "install":
 		return runInstall(rest)
 	case "uninstall":
 		return runUninstall()
+	case "tray":
+		return runTray(rest)
+	case "engine":
+		return runEngine(rest)
 	default:
-		return runSync(rest)
+		return defaultRun(rest) // 无子命令：平台分流
 	}
 }
 
-// parseCommand 识别子命令；无子命令或仅旗标时默认 tray（双击即托盘）。
+// parseCommand 识别子命令；无子命令返回空串，由 run() 按平台分流。
 func parseCommand(args []string) (cmd string, rest []string) {
 	if len(args) > 0 {
 		switch args[0] {
-		case "sync", "status", "install", "uninstall", "tray":
+		case "sync", "status", "install", "uninstall", "tray", "engine":
 			return args[0], args[1:]
 		}
 	}
-	return "tray", args
+	return "", args
 }
 
 // runSync 执行单次同步：加载配置 → 日志 → .gitignore → 加锁 → 同步 → 持久化状态 → 通知。
@@ -193,7 +197,7 @@ func runTray(rest []string) int {
 	}
 	defer release()
 
-	sched := tasksched.NewTaskScheduler(store.List(), logger)
+	sched := tasksched.NewTaskScheduler(store.List(), logger, notify.NewBeeepNotifier(), nil)
 	if err := tray.NewTrayApp(sched, store, logger).Run(!*background); err != nil {
 		logger.Error(fmt.Sprintf("托盘退出: %v", err))
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)

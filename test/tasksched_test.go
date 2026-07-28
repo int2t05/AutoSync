@@ -68,7 +68,7 @@ func TestTaskRunner_NoChanges(t *testing.T) {
 
 	task := schedTask(t, "nc", repo, remote, "1m")
 	presetGitignore(t, task, repo, remote)
-	result := tasksched.NewTaskRunner(task, schedLogger(t)).Run()
+	result := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}, nil).Run()
 	if result.Outcome != sync.OutcomeNoChanges {
 		t.Fatalf("Outcome=%s, 期望 NoChanges", result.Outcome)
 	}
@@ -86,7 +86,7 @@ func TestTaskRunner_Pushed(t *testing.T) {
 	writeFile(t, repo, "new.txt", "x")
 
 	task := schedTask(t, "push", repo, remote, "1m")
-	result := tasksched.NewTaskRunner(task, schedLogger(t)).Run()
+	result := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}, nil).Run()
 	if result.Outcome != sync.OutcomePushed {
 		t.Fatalf("Outcome=%s, 期望 Pushed", result.Outcome)
 	}
@@ -105,7 +105,7 @@ func TestTaskScheduler_StartStop(t *testing.T) {
 
 	task := schedTask(t, "tick", repo, remote, "50ms")
 	presetGitignore(t, task, repo, remote)
-	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t))
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Start()
 	defer s.Stop()
 
@@ -123,7 +123,7 @@ func TestTaskScheduler_RunNow(t *testing.T) {
 
 	task := schedTask(t, "manual", repo, remote, "1m")
 	presetGitignore(t, task, repo, remote)
-	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t))
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	result, err := s.RunNow("manual")
 	if err != nil {
 		t.Fatalf("RunNow: %v", err)
@@ -140,7 +140,7 @@ func TestTaskScheduler_RunNow(t *testing.T) {
 func TestTaskRunner_Pause(t *testing.T) {
 	d := makeTempDir(t, "autosync-repo-*")
 	task := schedTask(t, "unitpause", d, "u", "1m")
-	r := tasksched.NewTaskRunner(task, schedLogger(t))
+	r := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{}, nil)
 	if r.Paused() {
 		t.Error("默认应非暂停")
 	}
@@ -163,7 +163,7 @@ func TestTaskScheduler_PauseBlocks(t *testing.T) {
 	task := schedTask(t, "pause", repo, remote, "50ms")
 	presetGitignore(t, task, repo, remote)
 
-	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t))
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Runners()[0].SetPaused(true) // 启动前暂停
 	s.Start()
 	defer s.Stop()
@@ -187,7 +187,7 @@ func TestTaskScheduler_Reload(t *testing.T) {
 	task1 := schedTask(t, "r1", repo1, remote1, "1m")
 	presetGitignore(t, task1, repo1, remote1)
 
-	s := tasksched.NewTaskScheduler([]*configstore.Task{task1}, schedLogger(t))
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task1}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Start()
 	defer s.Stop()
 	if !waitStateFile(task1, 2*time.Second) {
@@ -216,7 +216,7 @@ func TestTaskScheduler_RunnersRaceWithReload(t *testing.T) {
 	task := schedTask(t, "race", repo, remote, "1m")
 	presetGitignore(t, task, repo, remote)
 
-	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t))
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Start()
 	defer s.Stop()
 

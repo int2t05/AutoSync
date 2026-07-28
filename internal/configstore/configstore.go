@@ -184,6 +184,28 @@ func (s *Store) Delete(name string) error {
 	return fmt.Errorf("任务不存在: %q", name)
 }
 
+// ReplaceAll 用 tasks 全量替换当前任务列表（校验名唯一与合法性），不落盘，需 Save 持久化。
+// 供 engine config-save 命令原子替换配置：先全量校验，任一失败则不动现有列表。
+func (s *Store) ReplaceAll(tasks []*Task) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := make(map[string]bool)
+	for _, t := range tasks {
+		if t.Name == "" {
+			return fmt.Errorf("任务名不能为空")
+		}
+		if seen[t.Name] {
+			return fmt.Errorf("任务名重复: %q", t.Name)
+		}
+		seen[t.Name] = true
+		if err := t.Normalize(); err != nil {
+			return fmt.Errorf("任务 %q 校验失败: %w", t.Name, err)
+		}
+	}
+	s.tasks = append([]*Task(nil), tasks...)
+	return nil
+}
+
 // Save 将全部任务以 tasks 列表形式写回配置文件。
 // 原子写：先写临时文件再重命名，避免崩溃中途损坏配置。
 func (s *Store) Save() error {

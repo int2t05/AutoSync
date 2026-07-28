@@ -30,18 +30,19 @@ function Invoke-BuildCli {
     Write-Host "构建完成：AutoSync-CLI.exe（CLI，无托盘）"
 }
 
-# 三平台交叉编译（Windows 托盘 + macOS/Linux CLI stub；非 Windows 纯 Go 可交叉编译）
+# 三平台编译：Windows 托盘 exe + macOS 引擎（amd64/arm64，universal 合并见 build-macos-engine）+ Linux CLI（预留）
 function Invoke-BuildAll {
     go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
     $env:CGO_ENABLED = "0"
-    $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o autosync-darwin ./cmd/autosync
+    $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o autosync-engine-darwin-amd64 ./cmd/autosync
+    $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -o autosync-engine-darwin-arm64 ./cmd/autosync
     $env:GOOS = "linux";  $env:GOARCH = "amd64"; go build -o autosync-linux ./cmd/autosync
     $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
-    Write-Host "交叉编译完成：AutoSync.exe / autosync-darwin / autosync-linux"
+    Write-Host "三平台编译完成：AutoSync.exe / autosync-engine-darwin-{amd64,arm64} / autosync-linux"
 }
 
 function Invoke-Clean {
-    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe, autosync-darwin, autosync-linux
+    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe, autosync-engine-darwin-amd64, autosync-engine-darwin-arm64, autosync-linux
 }
 
 # 生成图标资源：SVG→PNG + Windows exe 图标 .syso（仅 icon.svg 改动后运行；.syso 已提交）

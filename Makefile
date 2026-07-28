@@ -31,10 +31,12 @@ build:
 build-cli:
 	$(GO) build -o AutoSync-CLI.exe ./cmd/autosync
 
-# 三平台交叉编译（Windows 托盘 + macOS/Linux CLI stub；非 Windows 纯 Go 可交叉编译）
+# 三平台编译：Windows 托盘 exe + macOS 引擎（amd64/arm64，universal 合并见 build-macos-engine）+ Linux CLI（预留）
+# macOS 引擎纯 Go 可交叉编译；universal 二进制合并需 macOS 主机 lipo（M7 build-macos-engine）
 build-all:
 	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
-	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-darwin ./cmd/autosync
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-engine-darwin-amd64 ./cmd/autosync
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 $(GO) build -o autosync-engine-darwin-arm64 ./cmd/autosync
 	GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o autosync-linux ./cmd/autosync
 
 # 生成图标资源：SVG→PNG（cmd/genicon）+ Windows exe 图标 .syso（go-winres）
@@ -44,4 +46,4 @@ icons:
 	cd cmd/autosync && $(GO) run github.com/tc-hib/go-winres@latest make
 
 clean:
-	rm -f AutoSync.exe AutoSync-CLI.exe autosync-darwin autosync-linux
+	rm -f AutoSync.exe AutoSync-CLI.exe autosync-engine-darwin-amd64 autosync-engine-darwin-arm64 autosync-linux

@@ -20,16 +20,18 @@ import (
 
 // TaskRunner 执行单个任务的同步全流程。
 type TaskRunner struct {
-	task    *configstore.Task
-	logger  *log.Logger
-	mu      stdsync.Mutex // 串行化同一任务的并发触发（tick + 手动）
-	pauseMu stdsync.Mutex
-	paused  bool // 暂停标志：暂停时 ticker 跳过触发
+	task     *configstore.Task
+	logger   *log.Logger
+	notifier notify.Notifier          // 通知投递（beeep 或 IPC 委托），依赖倒置
+	onResult func(string, sync.SyncResult)    // ticker 触发后的结果回调，可为 nil（tray 传 nil）
+	mu       stdsync.Mutex // 串行化同一任务的并发触发（tick + 手动）
+	pauseMu  stdsync.Mutex
+	paused   bool // 暂停标志：暂停时 ticker 跳过触发
 }
 
-// NewTaskRunner 创建任务执行器。
-func NewTaskRunner(task *configstore.Task, logger *log.Logger) *TaskRunner {
-	return &TaskRunner{task: task, logger: logger}
+// NewTaskRunner 创建任务执行器。notifier 注入通知投递；onResult 为 ticker 触发后的结果回调，可为 nil。
+func NewTaskRunner(task *configstore.Task, logger *log.Logger, notifier notify.Notifier, onResult func(string, sync.SyncResult)) *TaskRunner {
+	return &TaskRunner{task: task, logger: logger, notifier: notifier, onResult: onResult}
 }
 
 // Task 返回执行器关联的任务（供托盘查询状态）。
@@ -85,34 +87,40 @@ func (r *TaskRunner) Run() sync.SyncResult {
 		r.logger.Warn(fmt.Sprintf("任务 %s 写状态文件失败: %v", r.task.Name, err))
 	}
 
-	// 通知策略：成功静默，异常才通知
+	// 通知策略：成功静默，异常才通知（notifier 由调用方注入：beeep 或 IPC 委托壳）
 	decision := notify.PolicyFor(result)
 	if decision.Notify {
-		if err := notify.NewBeeepNotifier().Notify(decision.Title, decision.Body, decision.Severity); err != nil {
+		if err := r.notifier.Notify(decision.Title, decision.Body, decision.Severity); err != nil {
 			r.logger.Warn(fmt.Sprintf("任务 %s 发送通知失败: %v", r.task.Name, err))
 		}
+	}
+	// ticker 触发的结果回调（engine 经此上报 sync-result；tray 传 nil 不回调）
+	if r.onResult != nil {
+		r.onResult(r.task.Name, result)
 	}
 	return result
 }
 
 // TaskScheduler 按各任务 interval 启动独立 ticker 定时触发 TaskRunner。
 type TaskScheduler struct {
-	runners []*TaskRunner
-	logger  *log.Logger
-	tickers []*time.Ticker
-	stop    chan struct{}
-	wg      stdsync.WaitGroup
-	mu      stdsync.Mutex
-	running bool
+	runners  []*TaskRunner
+	logger   *log.Logger
+	notifier notify.Notifier
+	onResult func(string, sync.SyncResult)
+	tickers  []*time.Ticker
+	stop     chan struct{}
+	wg       stdsync.WaitGroup
+	mu       stdsync.Mutex
+	running  bool
 }
 
-// NewTaskScheduler 为每个任务构造一个 TaskRunner。
-func NewTaskScheduler(tasks []*configstore.Task, logger *log.Logger) *TaskScheduler {
+// NewTaskScheduler 为每个任务构造一个 TaskRunner，透传 notifier 与 onResult 给每个执行器。
+func NewTaskScheduler(tasks []*configstore.Task, logger *log.Logger, notifier notify.Notifier, onResult func(string, sync.SyncResult)) *TaskScheduler {
 	runners := make([]*TaskRunner, 0, len(tasks))
 	for _, t := range tasks {
-		runners = append(runners, NewTaskRunner(t, logger))
+		runners = append(runners, NewTaskRunner(t, logger, notifier, onResult))
 	}
-	return &TaskScheduler{runners: runners, logger: logger}
+	return &TaskScheduler{runners: runners, logger: logger, notifier: notifier, onResult: onResult}
 }
 
 // Runners 返回全部任务执行器的副本（供托盘菜单构造，避免与 Reload 并发读写）。
@@ -210,12 +218,12 @@ func (s *TaskScheduler) runnerByName(name string) *TaskRunner {
 	return nil
 }
 
-// Reload 用新任务列表重建执行器并重启 ticker（配置变更后热重载）。
+// Reload 用新任务列表重建执行器并重启 ticker（配置变更后热重载），透传 notifier 与 onResult。
 func (s *TaskScheduler) Reload(tasks []*configstore.Task) {
 	s.Stop()
 	runners := make([]*TaskRunner, 0, len(tasks))
 	for _, t := range tasks {
-		runners = append(runners, NewTaskRunner(t, s.logger))
+		runners = append(runners, NewTaskRunner(t, s.logger, s.notifier, s.onResult))
 	}
 	s.mu.Lock()
 	s.runners = runners

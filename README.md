@@ -36,10 +36,16 @@ autosync sync --dry-run        # CLI 一次性只读预览
 
 ## 数据目录
 
-配置与 byproduct（日志/状态/锁）统一在 `~/.autosync/`，exe 位置独立——可装进 `Program Files`、可在任意位置双击。可用 `AUTOSYNC_DATA_DIR` 覆盖。
+配置与 byproduct（日志/状态/锁）统一在各平台原生数据目录，exe 位置独立——可装进 `Program Files`、可在任意位置双击。可用 `AUTOSYNC_DATA_DIR` 覆盖。
+
+| 平台 | 数据目录 |
+|------|----------|
+| Windows | `%AppData%\AutoSync` |
+| macOS | `~/Library/Application Support/AutoSync` |
+| Linux | `~/.config/AutoSync` |
 
 ```
-~/.autosync/
+<数据目录>/
   autosync.conf.yaml   # 托盘多任务配置（GUI 管理）
   config.yaml          # CLI 单任务配置
   logs/  state/  locks/

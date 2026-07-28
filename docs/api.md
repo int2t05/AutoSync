@@ -4,8 +4,8 @@
 
 ## 通用
 
-- 配置文件默认 `~/.autosync/config.yaml`，`--config` 覆盖路径。托盘多任务配置为 `~/.autosync/autosync.conf.yaml`。
-- byproduct 统一在 `~/.autosync/`：日志 `logs/autosync.log`、状态 `state/`、锁 `locks/`。可用 `AUTOSYNC_DATA_DIR` 覆盖数据目录。
+- 配置文件默认 `<数据目录>/config.yaml`，`--config` 覆盖路径。托盘多任务配置为 `<数据目录>/autosync.conf.yaml`。
+- byproduct 统一在数据目录：日志 `logs/autosync.log`、状态 `state/`、锁 `locks/`。数据目录为各平台原生路径（Windows `%AppData%\AutoSync`、macOS `~/Library/Application Support/AutoSync`、Linux `~/.config/AutoSync`），可用 `AUTOSYNC_DATA_DIR` 覆盖。
 - `show_console: true` 时日志同时输出到控制台。
 - 退出码：`0` 成功 / 静默跳过；`1` 同步失败或冲突中止。
 

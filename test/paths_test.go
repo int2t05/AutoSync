@@ -18,14 +18,14 @@ func TestUserDataDir_Override(t *testing.T) {
 	}
 }
 
-// TestUserDataDir_Default 验证未设覆盖时回退到 ~/.autosync。
+// TestUserDataDir_Default 验证未设覆盖时用各平台原生配置目录 + AutoSync。
 func TestUserDataDir_Default(t *testing.T) {
 	t.Setenv("AUTOSYNC_DATA_DIR", "")
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("无法获取 home 目录")
+	cfg, err := os.UserConfigDir()
+	if err != nil || cfg == "" {
+		t.Skip("无法获取用户配置目录")
 	}
-	want := filepath.Join(home, ".autosync")
+	want := filepath.Join(cfg, "AutoSync")
 	if got := config.UserDataDir(); got != want {
 		t.Fatalf("UserDataDir=%q, 期望 %q", got, want)
 	}
