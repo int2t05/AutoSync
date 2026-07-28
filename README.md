@@ -1,6 +1,6 @@
 # AutoSync
 
-<p align="center"><img src="internal/assets/icon.svg" width="128" alt="AutoSync"></p>
+<p align="center"><img src="internal/assets/icon.png" width="128" alt="AutoSync"></p>
 
 > 基于系统 git 的跨平台文件夹双向同步工具。双击即用，托盘常驻，自动提交、合并、冲突处理，完全无感。
 
