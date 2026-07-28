@@ -135,6 +135,23 @@ flowchart TB
 - **自启**：`install` / `uninstall` 改为注册表 `HKCU\...\Run` 键开关（替代 schtasks）。非 Windows 不支持。
 - **托盘菜单**：各任务手动同步 / 暂停、开机自启开关、打开配置、退出（同步状态经 `autosync status` 查询）。
 
+## V1.2 架构：macOS 原生壳 + 引擎子进程
+
+V1.2 在 V1.1 引擎之上为 macOS 加 Swift `MenuBarExtra` 原生壳，Go 引擎以 `engine` 子命令作子进程经 stdin/stdout JSON IPC 供壳调用。引擎核心三平台共享，仅入口与平台层分化。
+
+```mermaid
+flowchart TB
+  APP[AutoSync.app Swift MenuBarExtra 壳] -->|JSON stdin/stdout| ENG[autosync-engine Go 子进程]
+  ENG --> SCHED[TaskScheduler 复用]
+  SCHED --> SYNC[Syncer 复用]
+  APP --> NOTIFY[UNUserNotificationCenter] & AUTO[SMAppService 登录项] & LOCK[flock 单实例]
+```
+
+- **进程模型**：macOS 双进程（壳 + 引擎），壳管 GUI/自启/通知/单实例，引擎管同步调度；Windows 仍单进程 Fyne 托盘。
+- **IPC**：JSON 行协议（`internal/engine/protocol.go`），命令 status/sync-now/pause/resume/config-list/config-save/quit，事件 ready/status/sync-result/notify/bye 等。
+- **依赖倒置**：`tasksched` 的 Notifier 与 onResult 回调由调用方注入（Windows beeep / macOS IPC 委托壳）。
+- **分发**：未签名 DMG + `xattr` 文档（起步），后续可升级 Developer ID 公证。
+
 ## 测试策略
 
 - 全部测试在 `test/` 目录，包名 `tests`。

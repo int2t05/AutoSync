@@ -37,6 +37,7 @@ type Event struct {
 	LogPath      string       `json:"logPath,omitempty"`      // ready
 	DataDir      string       `json:"dataDir,omitempty"`      // ready
 	Tasks        []TaskStatus `json:"tasks,omitempty"`        // ready/status/config-list/config-saved
+	ConfigTasks  []*TaskDTO   `json:"config_tasks,omitempty"` // config-list/config-saved 完整配置
 	Task         string       `json:"task,omitempty"`         // sync-result/paused/resumed
 	Outcome      string       `json:"outcome,omitempty"`      // sync-result
 	Message      string       `json:"message,omitempty"`      // sync-result/error

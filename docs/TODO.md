@@ -9,7 +9,7 @@
 | dry-run 不联网 | 预览可能误报 UpToDate | 跳过 fetch，基于陈旧远程引用判定，远程已领先时仍显示"一致" |
 | local_wins 并发覆盖 | 多设备真并发时最后同步者覆盖 | 已知权衡；真并发场景建议改 `abort` 手动处理 |
 | backup 清理无跨设备协调 | 一端清理了另一端未拉取的备份 | 清理仅按本地+远程引用，不感知其他设备是否已恢复 |
-| 非 Windows 调度未实现 | macOS/Linux 需手动配 cron | `install`/`uninstall` 在非 Windows 返回未实现 |
+| Linux 调度未实现 | Linux 需手动配 cron | `install`/`uninstall` 在 Linux 返回未实现；macOS 已由 Swift 壳 SMAppService 管理 |
 | 通知不分级 | 信息/警告/错误图标一致 | beeep 投递统一默认图标 |
 | 连续失败无降噪 | 持续失败会重复通知 | `ConsecutiveFailures` 字段已预留未启用 |
 
@@ -36,11 +36,13 @@ flowchart LR
   NOW --> E[backup 清理增强]
 ```
 
-- **macOS/Linux 托盘自启**：launchd plist / cron 实现非 Windows 自启。
+- **Linux 托盘自启**：cron 实现非 Windows 自启（macOS 已由 SMAppService 完成）。
 - **实时文件监听**：inotify/FSEvents 替代轮询，亚分钟级延迟。
 - **HTTPS token 引导**：降低 SSH 凭证配置门槛。
 - **连续失败降噪**：启用 `ConsecutiveFailures`，指数退避告警。
 - **backup 清理增强**：按时间过期、跨设备协调。
+- **macOS 代码签名 + 公证**：取得 Developer ID 后用 notarytool 公证，移除 `xattr` 手动步骤。
+- **macOS engine 崩溃重启策略**：壳侧指数退避最多 3 次，可配置化。
 
 ### 架构优化（审计延后）
 

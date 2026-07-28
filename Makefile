@@ -3,7 +3,7 @@
 
 GO ?= go
 
-.PHONY: test test-race vet fmt tidy build build-all icons clean
+.PHONY: test test-race vet fmt tidy build build-cli build-all icons build-macos-engine build-macos-app build-macos-dmg clean
 
 # 运行全部测试（test/ 目录，真实数据）
 test:
@@ -45,5 +45,20 @@ icons:
 	$(GO) run ./cmd/genicon
 	cd cmd/autosync && $(GO) run github.com/tc-hib/go-winres@latest make
 
+# 构建 macOS Go 引擎二进制（amd64 + arm64，纯 Go 可交叉编译；universal 合并需 macOS lipo，见 build-macos-app）
+build-macos-engine:
+	mkdir -p dist
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o dist/autosync-engine-amd64 ./cmd/autosync
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 $(GO) build -o dist/autosync-engine-arm64 ./cmd/autosync
+
+# 构建 macOS .app（需 macOS 主机 + xcodegen + Xcode；详见 macos/build-app.sh）
+build-macos-app:
+	bash macos/build-app.sh
+
+# 打包 macOS DMG（需 macOS 主机；依赖 build-macos-app）
+build-macos-dmg:
+	bash macos/build-dmg.sh
+
 clean:
 	rm -f AutoSync.exe AutoSync-CLI.exe autosync-engine-darwin-amd64 autosync-engine-darwin-arm64 autosync-linux
+	rm -rf dist

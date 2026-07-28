@@ -4,8 +4,14 @@
 *.out
 /AutoSync
 /AutoSync_Silent
-/autosync-darwin
+/autosync-engine-darwin-amd64
+/autosync-engine-darwin-arm64
 /autosync-linux
+/dist/
+*.dmg
+
+# macOS Xcode 工程（xcodegen 生成，不入库）
+/macos/AutoSync.xcodeproj/
 
 # 日志与状态文件
 autosync.log

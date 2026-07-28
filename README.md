@@ -32,6 +32,9 @@ make build-cli      # 纯 Go CLI 版（无托盘，快速 / 跨平台）
 autosync                       # 启动托盘守护（双击等同，弹窗口）
 autosync install               # 开机自启（写注册表 Run 键，后台静默）
 autosync sync --dry-run        # CLI 一次性只读预览
+
+# macOS：菜单栏守护（Swift MenuBarExtra 壳 + Go 引擎子进程，须 macOS 主机）
+make build-macos-app           # 产 dist/AutoSync.app（需 xcodegen + Xcode，见 macos/README-install.md）
 ```
 
 ## 数据目录
@@ -72,7 +75,8 @@ Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git�
 | 平台 | 同步核心 | 托盘守护 | 开机自启 |
 |------|----------|----------|----------|
 | Windows | ✅ | ✅ Fyne | ✅ 注册表 Run 键 |
-| macOS / Linux | ✅ | 仅 CLI（无托盘） | 手动 launchd / cron |
+| macOS | ✅ | ✅ MenuBarExtra（Swift 壳） | ✅ SMAppService |
+| Linux | ✅ | CLI（预留） | 手动 cron |
 
 ## 文档
 
@@ -80,7 +84,7 @@ Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git�
 
 ## 路线图
 
-**后续**：macOS/Linux 托盘自启、实时文件监听、HTTPS token 引导、连续失败降噪、托盘状态回显。
+**后续**：实时文件监听、HTTPS token 引导、连续失败降噪、托盘状态回显、macOS 代码签名公证、Linux 托盘守护。
 
 完整方向见 [docs/TODO.md](docs/TODO.md)。
 

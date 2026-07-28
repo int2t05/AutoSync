@@ -5,7 +5,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-cli", "build-all", "icons", "clean")]
+    [ValidateSet("test", "test-race", "vet", "fmt", "tidy", "build", "build-cli", "build-all", "icons", "build-macos-engine", "build-macos-app", "build-macos-dmg", "clean")]
     [string]$Target = "build"
 )
 
@@ -43,6 +43,7 @@ function Invoke-BuildAll {
 
 function Invoke-Clean {
     Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe, autosync-engine-darwin-amd64, autosync-engine-darwin-arm64, autosync-linux
+    Remove-Item -ErrorAction SilentlyContinue -Force -Recurse dist
 }
 
 # 生成图标资源：SVG→PNG + Windows exe 图标 .syso（仅 icon.svg 改动后运行；.syso 已提交）
@@ -54,6 +55,22 @@ function Invoke-Icons {
     Write-Host "图标资源已生成：internal/assets/icon.png + cmd/autosync/*.syso"
 }
 
+# 构建 macOS Go 引擎二进制（amd64 + arm64，纯 Go 可交叉编译；universal 合并需 macOS lipo）
+function Invoke-BuildMacosEngine {
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
+    $env:CGO_ENABLED = "0"
+    $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o dist/autosync-engine-amd64 ./cmd/autosync
+    $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -o dist/autosync-engine-arm64 ./cmd/autosync
+    $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
+    Write-Host "macOS 引擎二进制：dist/autosync-engine-{amd64,arm64}（universal 合并需 macOS lipo）"
+}
+
+# 构建 macOS .app（需 macOS 主机 + xcodegen + Xcode）
+function Invoke-BuildMacosApp { bash macos/build-app.sh }
+
+# 打包 macOS DMG（需 macOS 主机）
+function Invoke-BuildMacosDmg { bash macos/build-dmg.sh }
+
 switch ($Target) {
     "test"      { Invoke-Test }
     "test-race" { Invoke-TestRace }
@@ -64,5 +81,8 @@ switch ($Target) {
     "build-cli" { Invoke-BuildCli }
     "build-all" { Invoke-BuildAll }
     "icons"     { Invoke-Icons }
+    "build-macos-engine" { Invoke-BuildMacosEngine }
+    "build-macos-app"    { Invoke-BuildMacosApp }
+    "build-macos-dmg"    { Invoke-BuildMacosDmg }
     "clean"     { Invoke-Clean }
 }

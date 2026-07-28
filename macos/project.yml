@@ -1,0 +1,31 @@
+# xcodegen 工程定义：在 macOS 上 `brew install xcodegen && xcodegen generate` 生成 AutoSync.xcodeproj。
+# 生成后用 build-app.sh 构建或 `open AutoSync.xcodeproj` 在 Xcode 中开发。
+name: AutoSync
+options:
+  bundleIdPrefix: com.autosync
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  AutoSync:
+    type: application
+    platform: macOS
+    sources:
+      - path: AutoSync
+    resources:
+      - path: AutoSync/Assets.xcassets
+    info:
+      path: AutoSync/Info.plist
+      properties:
+        CFBundleDisplayName: AutoSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.autosync.app

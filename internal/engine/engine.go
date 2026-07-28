@@ -103,13 +103,13 @@ func (e *Engine) handle(cmd Command) bool {
 		}
 		e.writeEvent(Event{ID: cmd.ID, Event: "resumed", Task: cmd.Task})
 	case "config-list":
-		e.writeEvent(Event{ID: cmd.ID, Event: "config-list", Tasks: e.taskStatuses()})
+		e.writeEvent(Event{ID: cmd.ID, Event: "config-list", Tasks: e.taskStatuses(), ConfigTasks: e.taskDTOs()})
 	case "config-save":
 		if err := e.saveConfig(cmd.Tasks); err != nil {
 			e.writeEvent(Event{ID: cmd.ID, Event: "error", Message: err.Error()})
 			break
 		}
-		e.writeEvent(Event{ID: cmd.ID, Event: "config-saved", Tasks: e.taskStatuses()})
+		e.writeEvent(Event{ID: cmd.ID, Event: "config-saved", Tasks: e.taskStatuses(), ConfigTasks: e.taskDTOs()})
 	case "quit":
 		e.writeEvent(Event{Event: "bye", Reason: "quit"})
 		return true
@@ -191,5 +191,34 @@ func dtoToTask(d *TaskDTO) *configstore.Task {
 			ShowConsole:      d.ShowConsole,
 			Ignore:           d.Ignore,
 		},
+	}
+}
+
+// taskDTOs 构造当前所有任务的完整配置投影（config-list/config-saved 事件）。
+func (e *Engine) taskDTOs() []*TaskDTO {
+	tasks := e.store.List()
+	out := make([]*TaskDTO, 0, len(tasks))
+	for _, t := range tasks {
+		out = append(out, taskToDTO(t))
+	}
+	return out
+}
+
+// taskToTask 把 configstore.Task 转为 IPC 任务 DTO（字段一一对应）。
+func taskToDTO(t *configstore.Task) *TaskDTO {
+	return &TaskDTO{
+		Name:             t.Name,
+		RepoDir:          t.RepoDir,
+		RemoteURL:        t.RemoteURL,
+		Remote:           t.Remote,
+		Branch:           t.Branch,
+		Interval:         t.Interval,
+		ConflictStrategy: t.ConflictStrategy,
+		BackupKeep:       t.BackupKeep,
+		RetryCount:       t.RetryCount,
+		RetryBaseDelay:   t.RetryBaseDelay,
+		CommitMsgFormat:  t.CommitMsgFormat,
+		ShowConsole:      t.ShowConsole,
+		Ignore:           t.Ignore,
 	}
 }

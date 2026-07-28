@@ -53,6 +53,7 @@ GOOS=linux  GOARCH=amd64 go build -o /dev/null ./cmd/autosync
 make test        # go test ./...
 make build       # Windows 双版本
 make build-all   # 三平台交叉编译
+make build-macos-app  # macOS .app（需 macOS 主机 + xcodegen + Xcode）
 ```
 
 ## 5. 项目结构
@@ -73,9 +74,9 @@ make build-all   # 三平台交叉编译
 | `internal/tray` | 托盘守护应用（Fyne，构建标签 traygui 隔离）|
 | `internal/autostart` | 开机自启（Windows 注册表 Run 键 / macOS stub 由壳管 SMAppService / Linux stub 预留）|
 | `internal/assets` | 嵌入图标资源（icon.svg → icon.png，供托盘/窗口/exe）|
-| `internal/engine` | 【规划 M6】engine 子命令 IPC（macOS Swift 壳经 stdin/stdout JSON 调用）|
+| `internal/engine` | engine 子命令 IPC（macOS Swift 壳经 stdin/stdout JSON 调用）|
 | `test/` | **所有测试代码**（真实数据，禁止 mock）|
-| `macos/` | 【规划 M7】Swift MenuBarExtra 原生壳工程（macOS GUI）|
+| `macos/` | Swift MenuBarExtra 原生壳工程（macOS GUI，Xcode + xcodegen）|
 | `docs/` | prd / tech / flow / api / TODO / plan |
 | `config.example.yaml` | 配置模板 |
 | `Makefile` / `build.ps1` | 构建 / 测试脚本 |
