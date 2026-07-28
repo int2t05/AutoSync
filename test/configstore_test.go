@@ -154,6 +154,45 @@ func TestConfigStore_PerTaskPaths(t *testing.T) {
 	}
 }
 
+// TestConfigStore_LoadMissingFile 验证配置文件不存在时返回空存储（托盘空配置启动），新增任务后 Save 可落盘重载。
+func TestConfigStore_LoadMissingFile(t *testing.T) {
+	p := filepath.Join(makeTempDir(t, "autosync-cfg-*"), "autosync.conf.yaml")
+	store, err := configstore.Load(p)
+	if err != nil {
+		t.Fatalf("缺失文件应返回空存储而非错误: %v", err)
+	}
+	if len(store.List()) != 0 {
+		t.Fatalf("空存储任务数 = %d, 期望 0", len(store.List()))
+	}
+	d := makeTempDir(t, "autosync-repo-*")
+	if err := store.Add(mkTask("t1", d, "u1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := configstore.Load(p)
+	if err != nil {
+		t.Fatalf("重载失败: %v", err)
+	}
+	if len(reloaded.List()) != 1 || reloaded.List()[0].Name != "t1" {
+		t.Errorf("重载后任务不符: %+v", reloaded.List())
+	}
+}
+
+// TestConfigStore_LoadEmptyConfig 验证空文件与 tasks:[] 均返回空存储而非报错。
+func TestConfigStore_LoadEmptyConfig(t *testing.T) {
+	for _, content := range []string{"", "tasks: []\n"} {
+		store, err := configstore.Load(writeConfigFile(t, content))
+		if err != nil {
+			t.Fatalf("内容 %q 应返回空存储而非错误: %v", content, err)
+		}
+		if len(store.List()) != 0 {
+			t.Errorf("内容 %q 任务数 = %d, 期望 0", content, len(store.List()))
+		}
+	}
+}
+
 // TestConfigStore_Validation 验证非法策略、重名、repo_dir 不存在均加载失败。
 func TestConfigStore_Validation(t *testing.T) {
 	d := makeTempDir(t, "autosync-repo-*")

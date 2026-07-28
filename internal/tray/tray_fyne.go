@@ -37,11 +37,14 @@ func NewTrayApp(sched *tasksched.TaskScheduler, store *configstore.Store, logger
 	return &TrayApp{app: app.NewWithID("autosync"), sched: sched, store: store, logger: logger}
 }
 
-// Run 启动调度器与托盘事件循环，阻塞至用户退出。
+// Run 启动调度器与托盘事件循环，阻塞至用户退出。空配置时自动弹出配置窗口。
 func (a *TrayApp) Run() error {
 	a.refreshMenu()
 	if desk, ok := a.app.(desktop.App); ok {
 		desk.SetSystemTrayIcon(theme.FyneLogo())
+	}
+	if len(a.store.List()) == 0 {
+		a.showConfig() // 首次运行无任务：自动弹出配置窗口
 	}
 	a.sched.Start()
 	a.app.Run() // 阻塞至退出

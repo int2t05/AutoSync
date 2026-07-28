@@ -33,18 +33,19 @@ type taskFile struct {
 }
 
 // Load 从 path 读取多任务配置，对每个任务填充默认值并校验。
+// 文件不存在或无任务时返回空存储：托盘以空配置启动，由配置窗口新增任务后 Save 落盘。
 // 无 tasks 键的旧单配置视为名为 "default" 的单任务。
 func Load(path string) (*Store, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return &Store{path: path}, nil // 无配置文件：空存储启动
+		}
 		return nil, fmt.Errorf("读取配置文件失败 %s: %w", path, err)
 	}
 	tasks, err := parseTasks(data)
 	if err != nil {
 		return nil, err
-	}
-	if len(tasks) == 0 {
-		return nil, fmt.Errorf("配置文件 %s 无任务", path)
 	}
 	for _, t := range tasks {
 		if t.Name == "" {
@@ -65,7 +66,8 @@ func NewStore(path string) *Store {
 	return &Store{path: path}
 }
 
-// parseTasks 解析 YAML：有 tasks 键为多任务，否则整体作为单任务（V1.0 兼容）。
+// parseTasks 解析 YAML：有 tasks 键按列表解析（空列表返回空），
+// 无 tasks 键的整体作为单任务（V1.0 兼容），空文件返回空。
 func parseTasks(data []byte) ([]*Task, error) {
 	var probe taskFile
 	if err := yaml.Unmarshal(data, &probe); err != nil {
@@ -73,6 +75,17 @@ func parseTasks(data []byte) ([]*Task, error) {
 	}
 	if len(probe.Tasks) > 0 {
 		return probe.Tasks, nil
+	}
+	// 区分 `tasks: []`（显式空列表）/ 空文件 与 无 tasks 键的 V1.0 单配置
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("解析配置文件失败: %w", err)
+	}
+	if len(root) == 0 {
+		return nil, nil // 空文件
+	}
+	if _, hasTasks := root["tasks"]; hasTasks {
+		return nil, nil // tasks: [] 显式空列表
 	}
 	var t Task
 	if err := yaml.Unmarshal(data, &t); err != nil {
