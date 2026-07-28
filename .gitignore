@@ -22,3 +22,6 @@ config.yaml
 /autosync.state-*.json
 /autosync.lock-*
 /autosync.daemon.lock
+
+# 编辑器/工具备份
+*~
