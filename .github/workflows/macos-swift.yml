@@ -1,0 +1,52 @@
+# macos-swift.yml 在 GitHub Actions macOS runner 上验证 Swift 壳能否编译。
+# 公开仓库 GitHub Actions 免费（含 macOS runner，无分钟限制）。
+# 流程：xcodegen 生成工程 → xcodebuild CODE_SIGNING_ALLOWED=NO 免签名编译；
+# 附带 Go engine universal 交叉编译（amd64+arm64+lipo），验证 darwin 构建链。
+# Swift 壳运行时行为（菜单/IPC）仍须真 Mac 端到端验，本工作流只覆盖编译期正确性。
+name: macOS Swift 壳编译验证
+
+on:
+  push:
+    branches: [ "ci/macos-swift", main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: 安装 xcodegen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: cd macos && xcodegen generate
+
+      - name: 构建 Go engine universal 二进制（amd64 + arm64 + lipo）
+        run: |
+          mkdir -p dist
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o dist/autosync-engine-amd64 ./cmd/autosync
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o dist/autosync-engine-arm64 ./cmd/autosync
+          lipo -create -output dist/autosync-engine dist/autosync-engine-amd64 dist/autosync-engine-arm64
+
+      - name: xcodebuild 编译 Swift 壳（免签名）
+        run: |
+          xcodebuild -project macos/AutoSync.xcodeproj -scheme AutoSync \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath dist/DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: 失败时上传构建产物（供读 Swift 编译错误）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-derived-data
+          path: dist/DerivedData/
