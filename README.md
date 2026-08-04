@@ -80,7 +80,7 @@ Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git�
 
 ## 文档
 
-[prd](docs/prd.md) · [tech](docs/tech.md) · [api](docs/api.md) · [flow](docs/flow.md) · [TODO](docs/TODO.md) · [plan](docs/plan.md)
+[prd](docs/prd.md) · [tech](docs/tech.md) · [api](docs/api.md) · [flow](docs/flow.md) · [roadmap](docs/roadmap.md) · [TODO](docs/TODO.md) · [plan](docs/plan.md)
 
 ## 路线图
 

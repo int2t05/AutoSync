@@ -144,7 +144,7 @@ func Load(path string) (*Config, error) {
 
 ## 8. 资源
 
-- **设计文档**：[docs/prd.md](docs/prd.md) · [docs/tech.md](docs/tech.md) · [docs/flow.md](docs/flow.md) · [docs/api.md](docs/api.md) · [docs/TODO.md](docs/TODO.md) · [docs/plan.md](docs/plan.md)
+- **设计文档**：[docs/prd.md](docs/prd.md) · [docs/tech.md](docs/tech.md) · [docs/flow.md](docs/flow.md) · [docs/api.md](docs/api.md) · [docs/roadmap.md](docs/roadmap.md) · [docs/TODO.md](docs/TODO.md) · [docs/plan.md](docs/plan.md)
 - **配置模板**：`config.example.yaml`
 - **运行时**：Go 1.26+（`D:\DevelopTools\go\bin`）、系统 git、系统 git 凭证
 - **关键依赖**：`gopkg.in/yaml.v3`、`gen2brain/beeep`
