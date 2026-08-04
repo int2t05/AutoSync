@@ -84,9 +84,16 @@ Syncer 依赖 `GitOperator` 接口（依赖倒置），shell out 调系统 git�
 
 ## 路线图
 
-**后续**：实时文件监听、HTTPS token 引导、连续失败降噪、托盘状态回显、macOS 代码签名公证、daemon 运行时控制（手动同步/暂停 IPC）。
+语义化版本，每版本一个主题，不堆功能。完整规划见 [docs/roadmap.md](docs/roadmap.md)。
 
-完整方向见 [docs/TODO.md](docs/TODO.md)。
+| 版本 | 主题 | 关键能力 |
+|------|------|----------|
+| **v1.2.0** ✅ | 三平台守护 | Windows 托盘 + macOS Swift 壳 + Linux daemon，三冲突策略（含 `conflict_files` 副本可恢复） |
+| **v1.3.0** | 好用 | HTTPS token 引导降门槛、连续失败降噪、通知分级、清架构债 |
+| **v1.4.0** | 实时 | 文件监听（inotify/FSEvents）亚分钟级、daemon 运行时控制 IPC |
+| **v2.0.0** | 可信 + 生态 | macOS 代码签名公证、VS Code / Obsidian 插件、Git hook 集成 |
+
+**不做**：P2P 设备发现、文件分享、端到端加密云盘化、手机端、团队协作——竞品主场。全程 MIT 开源，不设功能付费墙。
 
 ## License
 
