@@ -78,6 +78,7 @@ func (g *execGit) run(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = g.repoDir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no")
+	applyHideWindow(cmd) // Windows 下隐藏 git 子进程窗口，避免同步时弹黑窗
 	out, err := cmd.CombinedOutput()
 	s := strings.TrimSpace(string(out))
 	if err != nil {
@@ -144,6 +145,7 @@ func (g *execGit) RemoteBranchExists(remote, branch string) (bool, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", remote+"/"+branch)
 	cmd.Dir = g.repoDir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	applyHideWindow(cmd)
 	if err := cmd.Run(); err != nil {
 		return false, nil // 引用不存在，非错误
 	}
@@ -192,6 +194,7 @@ func (g *execGit) RebaseAbort() error {
 	cmd := exec.Command("git", "rebase", "--abort")
 	cmd.Dir = g.repoDir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no")
+	applyHideWindow(cmd)
 	cmd.CombinedOutput() // 忽略输出与错误
 	return nil
 }

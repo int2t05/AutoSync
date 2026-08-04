@@ -56,9 +56,11 @@ func (s *Syncer) Run() SyncResult {
 		s.logger.Info("本地无新变更")
 	}
 
-	// S3：拉取远程引用
+	// S3：拉取远程引用。网络瞬态失败时降级：本地已提交，远程未同步，下次重试，
+	// 不报 Failed 触发错误通知，避免网络抖动频繁打扰用户。
 	if err := s.git.Fetch(s.cfg.Remote); err != nil {
-		return s.fail("拉取远程信息失败（网络问题？）", err)
+		s.logger.Warn(fmt.Sprintf("拉取远程失败（下次重试）: %v", err))
+		return SyncResult{Outcome: OutcomeNoChanges, Message: "本地已提交，远程暂不可达，下次重试"}
 	}
 
 	// S4：远程分支是否存在
