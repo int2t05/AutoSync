@@ -25,7 +25,7 @@ struct ConfigView: View {
             HStack {
                 Button("新增") {
                     editing = TaskDTO(name: "新任务", repoDir: "", remoteURL: "", branch: "main",
-                                     interval: "1m", conflictStrategy: "local_wins")
+                                     interval: "1m", conflictStrategy: "conflict_files")
                     editingNew = true
                 }
                 Button("编辑") {
@@ -80,10 +80,10 @@ struct TaskEditView: View {
                 TextField("远程地址", text: $draft.remoteURL)
                 TextField("分支", text: $draft.branch.orDefault("main"))
                 TextField("间隔", text: $draft.interval.orDefault("1m"))
-                Picker("冲突策略", selection: $draft.conflictStrategy.orDefault("local_wins")) {
+                Picker("冲突策略", selection: $draft.conflictStrategy.orDefault("conflict_files")) {
                     Text("local_wins").tag("local_wins")
                     Text("remote_wins").tag("remote_wins")
-                    Text("abort").tag("abort")
+                    Text("conflict_files").tag("conflict_files")
                 }
             }
             HStack {

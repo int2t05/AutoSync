@@ -150,8 +150,8 @@ func runSync(rest []string) int {
 		}
 	}
 
-	// 退出码：失败/中止 → 1，其余 → 0
-	if result.Outcome == sync.OutcomeFailed || result.Outcome == sync.OutcomeConflictAborted {
+	// 退出码：失败 → 1，其余 → 0
+	if result.Outcome == sync.OutcomeFailed {
 		logger.Error(fmt.Sprintf("同步失败: %s", result.Message))
 		return 1
 	}

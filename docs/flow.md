@@ -33,7 +33,7 @@ flowchart TD
   PUSHMERGE --> DONE5([AutoMerged])
   OK -->|否| ABORT[rebase --abort]
   ABORT --> CONFLICT[冲突处理]
-  CONFLICT --> DONE6([ConflictResolved/Aborted])
+  CONFLICT --> DONE6([ConflictResolved])
 ```
 
 **数据流**
@@ -61,15 +61,15 @@ flowchart TD
   S -->|remote_wins| RW[reset --hard remote/<branch>]
   RW --> RW2[clean -fd]
   RW2 --> R2([ConflictResolved])
-  S -->|abort| AB2[不做变更]
-  AB2 --> R3([ConflictAborted 退出码 1])
+  S -->|conflict_files| CF[读本地差异文件到内存<br/>ResetHardToRemote<br/>写 .sync-conflict-ts 副本<br/>add + commit + push]
+  CF --> R3([ConflictResolved])
 ```
 
 **数据流**
 
 - **local_wins**：`git branch backup/remote-<ts> <remote>/<branch>` → `git push <remote> backup/remote-<ts>` → `git push --force-with-lease <remote> <branch>` → 列 `backup/remote-*` 按名降序留最新 `backup_keep` 个，余下本地 `-D` + 远程 `--delete`。远程旧版本保存在备份分支可 checkout 恢复。
 - **remote_wins**：`git reset --hard <remote>/<branch>` → `git clean -fd`。本地未推送改动丢弃。
-- **abort**：仅 `rebase --abort`，不动工作区，退出码 1，弹错误通知。
+- **conflict_files**：`git diff --name-only --diff-filter=MD HEAD <remote>/<branch>` 列差异文件 → `os.ReadFile` 读本地版到内存 → `git reset --hard <remote>/<branch>` + `git clean -fd`（副本未写入，不受影响）→ 写 `<file>.sync-conflict-<ts>.<ext>` 副本 → `git add -A` + `commit` + `push`。本地版以副本入 git 同步所有设备，远程版为主文件。
 
 ## dry-run
 

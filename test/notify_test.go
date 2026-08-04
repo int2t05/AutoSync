@@ -42,12 +42,10 @@ func TestPolicyFor_ConflictResolvedWarning(t *testing.T) {
 	}
 }
 
-// TestPolicyFor_FailedError 验证失败/中止发 Error 通知。
+// TestPolicyFor_FailedError 验证失败发 Error 通知。
 func TestPolicyFor_FailedError(t *testing.T) {
-	for _, oc := range []sync.Outcome{sync.OutcomeConflictAborted, sync.OutcomeFailed} {
-		d := notify.PolicyFor(sync.SyncResult{Outcome: oc, Message: "出错"})
-		if !d.Notify || d.Severity != notify.SeverityError {
-			t.Errorf("Outcome %s 应 Error 通知，got notify=%v sev=%v", oc, d.Notify, d.Severity)
-		}
+	d := notify.PolicyFor(sync.SyncResult{Outcome: sync.OutcomeFailed, Message: "出错"})
+	if !d.Notify || d.Severity != notify.SeverityError {
+		t.Errorf("Failed 应 Error 通知, got notify=%v sev=%v", d.Notify, d.Severity)
 	}
 }

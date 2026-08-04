@@ -49,7 +49,7 @@ flowchart LR
 
 - FR-1 `sync` 执行：init → commit → fetch → 关系判定 → push / rebase / 冲突处理。
 - FR-2 关系四态判定（UpToDate / LocalAhead / RemoteAhead / Diverged），正确路由推送与合并。
-- FR-3 冲突三策略：`local_wins`（备份 + `--force-with-lease`）/ `remote_wins`（reset --hard）/ `abort`。
+- FR-3 冲突三策略：`local_wins`（备份 + `--force-with-lease`）/ `remote_wins`（reset --hard）/ `conflict_files`（本地版落副本，远程版生效）。
 - FR-4 备份分支 `backup/remote-<时间戳>`，按名排序保留最新 `backup_keep` 个。
 - FR-5 强制推送一律 `--force-with-lease`，禁止裸 `--force`。
 - FR-6 网络操作指数退避重试（`retry_count` / `retry_base_delay`）。
@@ -92,5 +92,5 @@ flowchart LR
 flowchart LR
   C{冲突?} -->|local_wins| L[备份远程到分支<br/>--force-with-lease 推本地]
   C -->|remote_wins| R[放弃本地<br/>reset --hard 到远程]
-  C -->|abort| A[中止同步<br/>退出码 1]
+  C -->|conflict_files| F[本地版落副本<br/>远程版生效]
 ```

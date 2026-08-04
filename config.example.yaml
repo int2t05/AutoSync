@@ -16,8 +16,11 @@ branch: "main"
 # 轮询间隔（默认 1m）
 interval: "1m"
 
-# 冲突策略：local_wins | remote_wins | abort（默认 local_wins）
-conflict_strategy: "local_wins"
+# 冲突策略：local_wins | remote_wins | conflict_files（默认 conflict_files）
+#   local_wins     备份远程旧版本到分支 + --force-with-lease 推本地
+#   remote_wins    放弃本地，重置到远程
+#   conflict_files 本地版落 .sync-conflict-<时间戳>.ext 副本（入 git 同步），远程版生效
+conflict_strategy: "conflict_files"
 
 # backup 分支保留数，超出的旧备份自动清理（默认 10）
 backup_keep: 10

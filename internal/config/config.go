@@ -21,7 +21,7 @@ type Config struct {
 	Branch            string        `yaml:"branch" json:"branch,omitempty"`                 // 同步分支，默认 main
 	Interval          string        `yaml:"interval" json:"interval,omitempty"`             // 轮询间隔字符串，默认 "1m"
 	IntervalDur       time.Duration `yaml:"-" json:"-"`                                      // 解析后的轮询间隔
-	ConflictStrategy  string        `yaml:"conflict_strategy" json:"conflict_strategy,omitempty"` // 冲突策略：local_wins|remote_wins|abort
+	ConflictStrategy  string        `yaml:"conflict_strategy" json:"conflict_strategy,omitempty"` // 冲突策略：local_wins|remote_wins|conflict_files
 	BackupKeep        int           `yaml:"backup_keep" json:"backup_keep,omitempty"`       // backup 分支保留数，默认 10
 	RetryCount        int           `yaml:"retry_count" json:"retry_count,omitempty"`       // 网络操作重试次数，默认 3
 	RetryBaseDelay    string        `yaml:"retry_base_delay" json:"retry_base_delay,omitempty"` // 重试退避基数字符串，默认 "1s"
@@ -73,7 +73,7 @@ func (c *Config) applyDefaults() {
 		c.Interval = "1m"
 	}
 	if c.ConflictStrategy == "" {
-		c.ConflictStrategy = "local_wins"
+		c.ConflictStrategy = "conflict_files"
 	}
 	if c.BackupKeep == 0 {
 		c.BackupKeep = 10
@@ -111,9 +111,9 @@ func (c *Config) validateRequired() error {
 		return fmt.Errorf("config: remote_url 不能为空")
 	}
 	switch c.ConflictStrategy {
-	case "local_wins", "remote_wins", "abort":
+	case "local_wins", "remote_wins", "conflict_files":
 	default:
-		return fmt.Errorf("config: conflict_strategy 非法 %q（需 local_wins|remote_wins|abort）", c.ConflictStrategy)
+		return fmt.Errorf("config: conflict_strategy 非法 %q（需 local_wins|remote_wins|conflict_files）", c.ConflictStrategy)
 	}
 	dur, err := time.ParseDuration(c.Interval)
 	if err != nil {

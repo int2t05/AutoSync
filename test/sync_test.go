@@ -213,8 +213,8 @@ func TestSync_Conflict_RemoteWins(t *testing.T) {
 	}
 }
 
-// TestSync_Conflict_Abort 验证 abort：不做变更，本地保留、远程不变。
-func TestSync_Conflict_Abort(t *testing.T) {
+// TestSync_Conflict_Files 验证 conflict_files：本地版落副本，远程版生效，副本入 git 推送。
+func TestSync_Conflict_Files(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
 	addRemote(t, repo, "origin", remote)
@@ -223,21 +223,32 @@ func TestSync_Conflict_Abort(t *testing.T) {
 	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE")
 
 	cfg := newConfig(repo, remote)
-	cfg.ConflictStrategy = "abort"
+	cfg.ConflictStrategy = "conflict_files"
 	result := newSyncer(t, cfg).Run()
 
-	if result.Outcome != sync.OutcomeConflictAborted {
-		t.Fatalf("Outcome = %s, 期望 ConflictAborted", result.Outcome)
+	if result.Outcome != sync.OutcomeConflictResolved {
+		t.Fatalf("Outcome = %s, 期望 ConflictResolved", result.Outcome)
 	}
-	if !fileContains(t, filepath.Join(repo, "same.txt"), "LOCAL") {
-		t.Errorf("abort 后本地 same.txt 应仍为 LOCAL")
+	// 远程胜出：主文件 same.txt 为 REMOTE
+	if !fileContains(t, filepath.Join(repo, "same.txt"), "REMOTE") {
+		t.Errorf("conflict_files 后主文件 same.txt 应为 REMOTE")
 	}
+	// 副本存在且内容为 LOCAL
+	matches, err := filepath.Glob(filepath.Join(repo, "same.sync-conflict-*.txt"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("应存在 1 个 same.sync-conflict-*.txt 副本, got %d (err=%v)", len(matches), err)
+	}
+	if !fileContains(t, matches[0], "LOCAL") {
+		t.Errorf("副本内容应为 LOCAL")
+	}
+	// 副本入 git 推送：克隆远程验证
 	c := cloneRemote(t, remote)
 	if !fileContains(t, filepath.Join(c, "same.txt"), "REMOTE") {
-		t.Errorf("abort 后远程应仍为 REMOTE")
+		t.Errorf("远程主文件应为 REMOTE")
 	}
-	if inRebase(t, repo) {
-		t.Errorf("abort 后不应处于 rebase 状态")
+	cMatches, _ := filepath.Glob(filepath.Join(c, "same.sync-conflict-*.txt"))
+	if len(cMatches) != 1 || !fileContains(t, cMatches[0], "LOCAL") {
+		t.Errorf("远程应含副本且内容为 LOCAL, got %d matches", len(cMatches))
 	}
 }
 

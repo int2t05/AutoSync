@@ -11,7 +11,6 @@ const (
 	OutcomePushed                           // 直接推送成功（含新建远程分支）
 	OutcomeAutoMerged                       // rebase 自动合并成功
 	OutcomeConflictResolved                 // 冲突已按策略解决
-	OutcomeConflictAborted                  // abort 策略，未处理
 	OutcomeFailed                           // 错误
 )
 
@@ -28,8 +27,6 @@ func (o Outcome) String() string {
 		return "自动合并"
 	case OutcomeConflictResolved:
 		return "冲突已解决"
-	case OutcomeConflictAborted:
-		return "冲突已中止"
 	case OutcomeFailed:
 		return "失败"
 	default:

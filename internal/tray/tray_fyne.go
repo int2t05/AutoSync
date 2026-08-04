@@ -195,7 +195,7 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, select
 	urlEntry := widget.NewEntry()
 	branchEntry := widget.NewEntry()
 	intervalEntry := widget.NewEntry()
-	strategySelect := widget.NewSelect([]string{"local_wins", "remote_wins", "abort"}, nil)
+	strategySelect := widget.NewSelect([]string{"local_wins", "remote_wins", "conflict_files"}, nil)
 	if existing != nil {
 		nameEntry.SetText(t.Name)
 		repoEntry.SetText(t.RepoDir)
@@ -206,7 +206,7 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, select
 	} else {
 		branchEntry.SetText("main")
 		intervalEntry.SetText("1m")
-		strategySelect.SetSelected("local_wins")
+		strategySelect.SetSelected("conflict_files")
 	}
 	items := []*widget.FormItem{
 		{Text: "名称", Widget: nameEntry},

@@ -55,7 +55,7 @@ func TestConfigStore_LoadMultiTask(t *testing.T) {
 	if tasks[0].Name != "项目" || tasks[0].RepoDir != d1 {
 		t.Errorf("任务0: name=%s repo=%s", tasks[0].Name, tasks[0].RepoDir)
 	}
-	if tasks[0].Remote != "origin" || tasks[0].Branch != "main" || tasks[0].ConflictStrategy != "local_wins" {
+	if tasks[0].Remote != "origin" || tasks[0].Branch != "main" || tasks[0].ConflictStrategy != "conflict_files" {
 		t.Errorf("任务0 默认值未填充: remote=%s branch=%s strategy=%s", tasks[0].Remote, tasks[0].Branch, tasks[0].ConflictStrategy)
 	}
 	if tasks[1].ConflictStrategy != "remote_wins" {

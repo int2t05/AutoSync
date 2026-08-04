@@ -4,6 +4,8 @@ package sync
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -126,13 +128,8 @@ func (s *Syncer) handleConflict() SyncResult {
 		return s.conflictLocalWins(timestamp)
 	case "remote_wins":
 		return s.conflictRemoteWins()
-	case "abort":
-		s.logger.Warn("冲突策略 abort：不做变更，提示手动处理")
-		return SyncResult{
-			Outcome:  OutcomeConflictAborted,
-			Message:  "检测到冲突，已中止同步",
-			Details:  "请手动 git pull --rebase 处理后重试",
-		}
+	case "conflict_files":
+		return s.conflictFiles(timestamp)
 	default:
 		return s.fail("未知冲突策略", fmt.Errorf("conflict_strategy=%s", s.cfg.ConflictStrategy))
 	}
@@ -172,6 +169,91 @@ func (s *Syncer) conflictRemoteWins() SyncResult {
 		Message: "冲突已解决：远程优先",
 		Details: "本地未推送改动已被远程版本覆盖",
 	}
+}
+
+// conflictFiles 冲突时本地版落 .sync-conflict-<ts>.<ext> 副本，远程版生效，副本入 git 推送。
+// 解决 reset 删副本陷阱：先读本地内容到内存 → ResetHardToRemote → 再写副本 → add+commit+push。
+// 副本在 clean -fd 执行时不存在于工作区，故不被清除（根因解法，非 work-around）。
+func (s *Syncer) conflictFiles(timestamp string) SyncResult {
+	// 列差异文件（Modified + Deleted：本地有内容且与远程不同）
+	files, err := s.git.DiffNameOnly(s.cfg.Remote, s.cfg.Branch)
+	if err != nil {
+		return s.fail("列差异文件失败", err)
+	}
+
+	// 读本地版内容到内存（RebaseAbort 后工作区 = 本地 HEAD）
+	type localCopy struct {
+		relPath string
+		content []byte
+	}
+	var copies []localCopy
+	for _, rel := range files {
+		data, err := os.ReadFile(filepath.Join(s.cfg.RepoDir, rel))
+		if err != nil {
+			s.logger.Warn(fmt.Sprintf("读取本地文件 %s 失败，跳过: %v", rel, err))
+			continue
+		}
+		copies = append(copies, localCopy{relPath: rel, content: data})
+	}
+
+	// 重置到远程（reset --hard + clean -fd）——副本尚未写入，clean 无关
+	s.logger.Info("重置到远程版本（本地版将以副本保留）...")
+	if err := s.git.ResetHardToRemote(s.cfg.Remote, s.cfg.Branch); err != nil {
+		return s.fail("重置到远程失败", err)
+	}
+
+	// 无本地内容可保留：远程已生效，无需提交推送
+	if len(copies) == 0 {
+		return SyncResult{
+			Outcome: OutcomeConflictResolved,
+			Message: "冲突已解决：远程优先（无本地文件需保留为副本）",
+		}
+	}
+
+	// 从内存写副本文件（不受 reset 影响）
+	for _, c := range copies {
+		copyPath := filepath.Join(s.cfg.RepoDir, conflictCopyName(c.relPath, timestamp))
+		if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
+			return s.fail("创建副本目录失败", err)
+		}
+		if err := os.WriteFile(copyPath, c.content, 0o644); err != nil {
+			return s.fail("写冲突副本失败", err)
+		}
+	}
+
+	// 副本入 git 提交推送（fast-forward，远程为父提交）
+	if err := s.git.StageAll(); err != nil {
+		return s.fail("暂存副本失败", err)
+	}
+	if err := s.git.Commit(fmt.Sprintf("conflict: preserve local as sync-conflict copies (%s)", timestamp)); err != nil {
+		return s.fail("提交副本失败", err)
+	}
+	if err := s.git.Push(s.cfg.Remote, s.cfg.Branch); err != nil {
+		return s.fail("推送副本失败", err)
+	}
+	return SyncResult{
+		Outcome: OutcomeConflictResolved,
+		Message: "冲突已解决：本地版保留为副本，远程版生效",
+		Details: fmt.Sprintf("已保留 %d 个本地版本副本", len(copies)),
+	}
+}
+
+// conflictCopyName 将 path 转为冲突副本名：file.ext → file.sync-conflict-<timestamp>.ext
+// 点文件（如 .gitignore）整体作名：.gitignore → .gitignore.sync-conflict-<timestamp>
+func conflictCopyName(path, timestamp string) string {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	if name == "" { // 点文件：filepath.Ext(".gitignore")=".gitignore"，name 为空
+		name = base
+		ext = ""
+	}
+	copyBase := name + ".sync-conflict-" + timestamp + ext
+	if dir == "." || dir == "" {
+		return copyBase
+	}
+	return filepath.Join(dir, copyBase)
 }
 
 // cleanupBackups 清理 backup/remote-* 备份分支，保留最新 backup_keep 个（本地+远程）。

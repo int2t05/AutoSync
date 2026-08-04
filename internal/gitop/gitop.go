@@ -60,6 +60,7 @@ type GitOperator interface {
 	DeleteLocalBranch(branchName string) error                    // 删除本地分支
 	ListBackupBranches(remote string) ([]string, error)           // 列出 backup/remote-*（本地+远程去重）
 	ResetHardToRemote(remote, branch string) error                // reset --hard + clean -fd
+	DiffNameOnly(remote, branch string) ([]string, error)         // 本地 HEAD 与 remote/branch 的差异文件（Modified + Deleted）
 }
 
 // execGit 通过 shell out 调用系统 git 实现 GitOperator。
@@ -272,6 +273,22 @@ func (g *execGit) ResetHardToRemote(remote, branch string) error {
 	}
 	_, err := g.run("clean", "-fd")
 	return err
+}
+
+// DiffNameOnly 列出本地 HEAD 与 remote/branch 的差异文件（Modified + Deleted，即本地有内容且与远程不同的文件）。
+// 供 conflict_files 策略读取需保留为副本的本地文件列表。
+func (g *execGit) DiffNameOnly(remote, branch string) ([]string, error) {
+	out, err := g.run("diff", "--name-only", "--diff-filter=MD", "HEAD", remote+"/"+branch)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
 }
 
 // truncate 截断字符串到最大长度，便于日志输出。

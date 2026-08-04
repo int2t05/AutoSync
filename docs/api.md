@@ -7,7 +7,7 @@
 - 配置文件默认 `~/.autosync/config.yaml`，`--config` 覆盖路径。多任务配置为 `~/.autosync/autosync.conf.yaml`（托盘/daemon 共用）。
 - byproduct 统一在 `~/.autosync/`：日志 `logs/autosync.log`、状态 `state/`、锁 `locks/`。可用 `AUTOSYNC_DATA_DIR` 覆盖。
 - `show_console: true` 时日志同时输出到控制台。
-- 退出码：`0` 成功 / 静默跳过；`1` 同步失败或冲突中止。
+- 退出码：`0` 成功 / 静默跳过；`1` 同步失败。
 
 ## sync
 
@@ -157,7 +157,7 @@ autosync tray --background    # 后台启动（不弹窗口，供开机自启 / 
 | `remote` | 否 | `origin` | 远程名 |
 | `branch` | 否 | `main` | 同步分支 |
 | `interval` | 否 | `1m` | 轮询间隔（最小粒度 1 分钟） |
-| `conflict_strategy` | 否 | `local_wins` | `local_wins` / `remote_wins` / `abort` |
+| `conflict_strategy` | 否 | `conflict_files` | `local_wins` / `remote_wins` / `conflict_files` |
 | `backup_keep` | 否 | `10` | backup 分支保留数 |
 | `retry_count` | 否 | `3` | 网络操作重试次数 |
 | `retry_base_delay` | 否 | `1s` | 重试退避基数（指数） |
@@ -178,4 +178,4 @@ autosync tray --background    # 后台启动（不弹窗口，供开机自启 / 
 | NoChanges / Pushed / AutoMerged | 静默 | — |
 | InitDone | 是 | 信息 |
 | ConflictResolved | 是（含备份分支） | 警告 |
-| ConflictAborted / Failed | 是 | 错误 |
+| Failed | 是 | 错误 |

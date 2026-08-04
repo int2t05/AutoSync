@@ -41,7 +41,7 @@ type Notifier interface {
 }
 
 // PolicyFor 根据同步结果决定通知策略（纯逻辑，可测）。
-// 成功类（NoChanges/Pushed/AutoMerged）静默；InitDone 信息；ConflictResolved 警告；ConflictAborted/Failed 错误。
+// 成功类（NoChanges/Pushed/AutoMerged）静默；InitDone 信息；ConflictResolved 警告；Failed 错误。
 func PolicyFor(result sync.SyncResult) Decision {
 	switch result.Outcome {
 	case sync.OutcomeInitDone:
@@ -55,7 +55,7 @@ func PolicyFor(result sync.SyncResult) Decision {
 			body += "\n备份分支: " + result.BackupBranch
 		}
 		return Decision{Notify: true, Severity: SeverityWarning, Title: "AutoSync 冲突已自动处理", Body: body}
-	case sync.OutcomeConflictAborted, sync.OutcomeFailed:
+	case sync.OutcomeFailed:
 		return Decision{Notify: true, Severity: SeverityError, Title: "AutoSync 同步失败", Body: result.Message}
 	}
 	return Decision{Notify: false}

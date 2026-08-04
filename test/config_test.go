@@ -49,8 +49,8 @@ func TestLoad_Valid_AppliesDefaults(t *testing.T) {
 	if cfg.Interval != "1m" || cfg.IntervalDur.Seconds() != 60 {
 		t.Errorf("Interval 默认 = %q / %v", cfg.Interval, cfg.IntervalDur)
 	}
-	if cfg.ConflictStrategy != "local_wins" {
-		t.Errorf("策略默认 = %q, 期望 local_wins", cfg.ConflictStrategy)
+	if cfg.ConflictStrategy != "conflict_files" {
+		t.Errorf("策略默认 = %q, 期望 conflict_files", cfg.ConflictStrategy)
 	}
 	if cfg.BackupKeep != 10 {
 		t.Errorf("BackupKeep 默认 = %d, 期望 10", cfg.BackupKeep)
