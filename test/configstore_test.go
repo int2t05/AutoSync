@@ -1,4 +1,4 @@
-// configstore_test.go 验证多任务配置存储：加载/单任务兼容/CRUD/每任务路径/校验（真实文件，无 mock）。
+// configstore_test.go 验证多任务配置存储：加载/CRUD/每任务路径/校验（真实文件，无 mock）。
 package tests
 
 import (
@@ -60,28 +60,6 @@ func TestConfigStore_LoadMultiTask(t *testing.T) {
 	}
 	if tasks[1].ConflictStrategy != "remote_wins" {
 		t.Errorf("任务1 strategy=%s, 期望 remote_wins", tasks[1].ConflictStrategy)
-	}
-}
-
-// TestConfigStore_LoadSingleTaskCompat 验证无 tasks 键的旧单配置视为名为 default 的单任务。
-func TestConfigStore_LoadSingleTaskCompat(t *testing.T) {
-	d := makeTempDir(t, "autosync-repo-*")
-	content := "repo_dir: '" + d + "'\n" +
-		"remote_url: 'https://github.com/a/b.git'\n" +
-		"conflict_strategy: 'abort'\n"
-	store, err := configstore.Load(writeConfigFile(t, content))
-	if err != nil {
-		t.Fatalf("Load 失败: %v", err)
-	}
-	tasks := store.List()
-	if len(tasks) != 1 {
-		t.Fatalf("任务数 = %d, 期望 1", len(tasks))
-	}
-	if tasks[0].Name != "default" {
-		t.Errorf("单任务名 = %q, 期望 default", tasks[0].Name)
-	}
-	if tasks[0].RepoDir != d || tasks[0].ConflictStrategy != "abort" {
-		t.Errorf("单任务字段: repo=%s strategy=%s", tasks[0].RepoDir, tasks[0].ConflictStrategy)
 	}
 }
 

@@ -27,7 +27,7 @@ func unitPath() (string, error) {
 // buildUnit 构造 systemd unit 文件内容，ExecStart 复用 BuildRunCommand（路径引号包裹，兼容空格）。
 func buildUnit(exePath, configPath string) string {
 	return fmt.Sprintf(`[Unit]
-Description=AutoSync 文件同步守护
+Description=%s 文件同步守护
 After=network.target
 
 [Service]
@@ -37,7 +37,7 @@ RestartSec=5
 
 [Install]
 WantedBy=default.target
-`, BuildRunCommand(exePath, configPath))
+`, AppName, BuildRunCommand(exePath, configPath))
 }
 
 // Enable 写 systemd user unit 并 daemon-reload + enable --now 启动。

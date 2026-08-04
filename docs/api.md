@@ -4,8 +4,8 @@
 
 ## 通用
 
-- 配置文件默认 `<数据目录>/config.yaml`，`--config` 覆盖路径。多任务配置为 `<数据目录>/autosync.conf.yaml`（托盘/daemon 共用）。
-- byproduct 统一在数据目录：日志 `logs/autosync.log`、状态 `state/`、锁 `locks/`。数据目录为各平台原生路径（Windows `%AppData%\AutoSync`、macOS `~/Library/Application Support/AutoSync`、Linux `~/.config/AutoSync`），可用 `AUTOSYNC_DATA_DIR` 覆盖。
+- 配置文件默认 `~/.autosync/config.yaml`，`--config` 覆盖路径。多任务配置为 `~/.autosync/autosync.conf.yaml`（托盘/daemon 共用）。
+- byproduct 统一在 `~/.autosync/`：日志 `logs/autosync.log`、状态 `state/`、锁 `locks/`。可用 `AUTOSYNC_DATA_DIR` 覆盖。
 - `show_console: true` 时日志同时输出到控制台。
 - 退出码：`0` 成功 / 静默跳过；`1` 同步失败或冲突中止。
 
@@ -133,7 +133,7 @@ autosync daemon [--config <conf>]
 - 通知走 beeep（Linux: D-Bus → notify-send → kdialog）。
 - 无运行时控制 IPC：手动同步用 `autosync sync` 单次，暂停靠编辑配置后重启 daemon（见 [TODO](TODO.md) 后续方向）。
 
-## tray（V1.1 托盘模式）
+## tray（托盘模式）
 
 无参数启动托盘守护进程（Fyne 窗口 + 托盘 + 内置定时器，Windows）。
 

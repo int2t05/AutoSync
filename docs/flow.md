@@ -93,7 +93,7 @@ flowchart TD
 
 `ListBackupBranches` 收集本地 `refs/heads/backup/remote-*` 与远程 `refs/remotes/<remote>/backup/remote-*`，去远程前缀合并去重；按分支名内时间戳降序排序，保留前 `backup_keep` 个，其余 `branch -D`（本地）+ `push --delete`（远程）。
 
-## V1.1 托盘守护流程
+## 托盘守护流程
 
 ```mermaid
 flowchart TD
@@ -111,7 +111,7 @@ flowchart TD
 
 **数据流**
 
-- **启动**：`autosync.conf.yaml` 加载任务列表 → 每任务按 interval 起 ticker → 到点调 TaskRunner → TaskRunner 构造 Syncer 执行 V1.0 同步状态机（见上）→ 结果写该任务 state + 通知 + 回显托盘。
+- **启动**：`autosync.conf.yaml` 加载任务列表 → 每任务按 interval 起 ticker → 到点调 TaskRunner → TaskRunner 构造 Syncer 执行同步状态机（见上）→ 结果写该任务 state + 通知 + 回显托盘。
 - **手动同步**：托盘菜单选任务 → 立即调 TaskRunner（与定时同路径，单实例锁保护单仓库不并发）。
 - **配置变更**：窗口编辑 → 保存 `autosync.conf.yaml` → 热重载该任务 ticker（无需重启）。
 - **自启**：注册表 Run 键 → 登录后系统拉起 `autosync`（无参数）→ 托盘守护。

@@ -1,5 +1,5 @@
 // configstore.go 管理多任务同步配置（autosync.conf.yaml 的 tasks 列表）。
-// Task 内嵌 V1.0 Config 复用默认值与校验；无 tasks 键的旧单配置视为单任务（向后兼容）。
+// Task 内嵌 Config 复用默认值与校验。
 // 每任务按名解析独立的 state/lock 文件，互不干扰。
 package configstore
 
@@ -50,7 +50,7 @@ func Load(path string) (*Store, error) {
 	}
 	for _, t := range tasks {
 		if t.Name == "" {
-			t.Name = "default"
+			return nil, fmt.Errorf("任务名不能为空")
 		}
 		if err := t.Normalize(); err != nil {
 			return nil, fmt.Errorf("任务 %q 校验失败: %w", t.Name, err)
@@ -67,32 +67,13 @@ func NewStore(path string) *Store {
 	return &Store{path: path}
 }
 
-// parseTasks 解析 YAML：有 tasks 键按列表解析（空列表返回空），
-// 无 tasks 键的整体作为单任务（V1.0 兼容），空文件返回空。
+// parseTasks 解析 YAML 顶层 tasks 列表；空文件或 tasks:[] 返回空。
 func parseTasks(data []byte) ([]*Task, error) {
-	var probe taskFile
-	if err := yaml.Unmarshal(data, &probe); err != nil {
+	var tf taskFile
+	if err := yaml.Unmarshal(data, &tf); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
-	if len(probe.Tasks) > 0 {
-		return probe.Tasks, nil
-	}
-	// 区分 `tasks: []`（显式空列表）/ 空文件 与 无 tasks 键的 V1.0 单配置
-	var root map[string]any
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
-	}
-	if len(root) == 0 {
-		return nil, nil // 空文件
-	}
-	if _, hasTasks := root["tasks"]; hasTasks {
-		return nil, nil // tasks: [] 显式空列表
-	}
-	var t Task
-	if err := yaml.Unmarshal(data, &t); err != nil {
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
-	}
-	return []*Task{&t}, nil
+	return tf.Tasks, nil
 }
 
 // checkUniqueNames 校验任务名唯一。

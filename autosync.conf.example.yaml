@@ -1,4 +1,4 @@
-# AutoSync 多任务配置模板 —— 复制为 ~/.config/AutoSync/autosync.conf.yaml
+# AutoSync 多任务配置模板 —— 复制为 ~/.autosync/autosync.conf.yaml
 # daemon/systemd 守护读取此文件；字段与 config.example.yaml 单任务一致，外层包 tasks 列表。
 # 每个任务独立 state/lock，互不干扰。
 #

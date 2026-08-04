@@ -38,23 +38,17 @@ make build-macos-app           # 产 dist/AutoSync.app（需 xcodegen + Xcode，
 
 # Linux：daemon 守护 + systemd 自启（无 GUI，对齐 Syncthing/Rclone）
 make package-linux             # 产 dist/autosync-linux-{amd64,arm64}.tar.gz
-# 解压 tarball → bash install-linux.sh → 编辑 ~/.config/AutoSync/autosync.conf.yaml
+# 解压 tarball → bash install-linux.sh → 编辑 ~/.autosync/autosync.conf.yaml
 autosync daemon                # 前台多任务守护（systemd 即调用此命令）
 autosync install               # 注册 systemd user service 开机自启
 ```
 
 ## 数据目录
 
-配置与 byproduct（日志/状态/锁）统一在各平台原生数据目录，exe 位置独立——可装进 `Program Files`、可在任意位置双击。可用 `AUTOSYNC_DATA_DIR` 覆盖。
-
-| 平台    | 数据目录                                   |
-| ------- | ------------------------------------------ |
-| Windows | `%AppData%\AutoSync`                     |
-| macOS   | `~/Library/Application Support/AutoSync` |
-| Linux   | `~/.config/AutoSync`                     |
+配置与 byproduct（日志/状态/锁）统一在用户主目录下 `~/.autosync/`，跨平台一致、exe 位置独立——可装进 `Program Files`、可在任意位置双击。可用 `AUTOSYNC_DATA_DIR` 覆盖。
 
 ```
-<数据目录>/
+~/.autosync/
   autosync.conf.yaml   # 多任务配置（daemon/托盘共用，Linux 手编 / Win/macOS GUI 管理）
   config.yaml          # CLI 单任务配置
   logs/  state/  locks/

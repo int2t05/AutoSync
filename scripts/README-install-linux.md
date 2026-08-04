@@ -8,7 +8,7 @@ bash install-linux.sh
 ```
 
 ## 2. 配置同步任务
-编辑 `~/.config/AutoSync/autosync.conf.yaml`（模板已由 install 脚本生成），填写 `tasks` 列表。字段见同目录 `autosync.conf.example.yaml`。
+编辑 `~/.autosync/autosync.conf.yaml`（模板已由 install 脚本生成），填写 `tasks` 列表。字段见同目录 `autosync.conf.example.yaml`。
 
 ## 3. 前台试运行
 ```bash

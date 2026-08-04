@@ -1,5 +1,5 @@
-// main_test.go 为集成测试设置 git 身份环境变量与隔离的数据目录，避免依赖全局配置、不污染真实 ~/.autosync。
-// 仅影响测试进程；生产环境由用户 git 配置提供身份，byproduct 写入 ~/.autosync。
+// main_test.go 为集成测试设置 git 身份环境变量与隔离的数据目录，避免依赖全局配置、不污染真实 ~/.autosync/。
+// 仅影响测试进程；生产环境由用户 git 配置提供身份，byproduct 写入 ~/.autosync/。
 package tests
 
 import (

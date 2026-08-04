@@ -20,6 +20,9 @@ import (
 	"autosync/internal/tasksched"
 )
 
+// Version 是 AutoSync 当前版本号，供 ready 事件上报与 release 对齐。
+const Version = "1.2.0"
+
 // Engine 持有调度器与 IPC 读写器，实现引擎子进程主循环。
 type Engine struct {
 	store *configstore.Store
@@ -45,7 +48,7 @@ func New(store *configstore.Store, logger *log.Logger, r io.Reader, w io.Writer)
 func (e *Engine) Run() int {
 	e.writeEvent(Event{
 		Event:   "ready",
-		Version: "1.2.0",
+		Version: Version,
 		LogPath: config.LogFilePath(),
 		DataDir: config.UserDataDir(),
 		Tasks:   e.taskStatuses(),

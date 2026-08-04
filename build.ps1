@@ -30,20 +30,21 @@ function Invoke-BuildCli {
     Write-Host "构建完成：AutoSync-CLI.exe（CLI，无托盘）"
 }
 
-# 三平台编译：Windows 托盘 exe + macOS 引擎（amd64/arm64）+ Linux CLI（amd64/arm64）
+# 三平台编译：Windows 托盘 exe（根目录）+ macOS/Linux 引擎（dist/，amd64/arm64）
 function Invoke-BuildAll {
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
     go build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
     $env:CGO_ENABLED = "0"
-    $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o autosync-engine-darwin-amd64 ./cmd/autosync
-    $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -o autosync-engine-darwin-arm64 ./cmd/autosync
-    $env:GOOS = "linux";  $env:GOARCH = "amd64"; go build -o autosync-linux-amd64 ./cmd/autosync
-    $env:GOOS = "linux";  $env:GOARCH = "arm64"; go build -o autosync-linux-arm64 ./cmd/autosync
+    $env:GOOS = "darwin"; $env:GOARCH = "amd64"; go build -o dist/autosync-engine-amd64 ./cmd/autosync
+    $env:GOOS = "darwin"; $env:GOARCH = "arm64"; go build -o dist/autosync-engine-arm64 ./cmd/autosync
+    $env:GOOS = "linux";  $env:GOARCH = "amd64"; go build -o dist/autosync-linux-amd64 ./cmd/autosync
+    $env:GOOS = "linux";  $env:GOARCH = "arm64"; go build -o dist/autosync-linux-arm64 ./cmd/autosync
     $env:GOOS = $null; $env:GOARCH = $null; $env:CGO_ENABLED = $null
-    Write-Host "三平台编译完成：AutoSync.exe / autosync-engine-darwin-{amd64,arm64} / autosync-linux-{amd64,arm64}"
+    Write-Host "三平台编译完成：AutoSync.exe / dist/autosync-engine-{amd64,arm64} / dist/autosync-linux-{amd64,arm64}"
 }
 
 function Invoke-Clean {
-    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe, autosync-engine-darwin-amd64, autosync-engine-darwin-arm64, autosync-linux-amd64, autosync-linux-arm64
+    Remove-Item -ErrorAction SilentlyContinue -Force AutoSync.exe, AutoSync-CLI.exe
     Remove-Item -ErrorAction SilentlyContinue -Force -Recurse dist
 }
 

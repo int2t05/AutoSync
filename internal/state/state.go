@@ -1,5 +1,5 @@
 // state.go 持久化上次同步状态，供 status 命令读取。
-// 存储为 JSON 文件（默认 autosync.state.json，与二进制同目录），并发安全。
+// 存储为 JSON 文件，位于 ~/.autosync/state/ 子目录下（见 config.StateFilePath），并发安全。
 package state
 
 import (
@@ -11,11 +11,10 @@ import (
 
 // State 记录上次同步的结果摘要。
 type State struct {
-	LastSyncAt          time.Time `json:"last_sync_at"`            // 上次同步时间
-	LastOutcome         string    `json:"last_outcome"`            // 上次结果标签（Outcome.String()）
-	LastMessage         string    `json:"last_message"`            // 摘要
-	BackupBranch        string    `json:"backup_branch,omitempty"` // local_wins 时的备份分支名
-	ConsecutiveFailures int       `json:"consecutive_failures"`    // 连续失败次数，TODO: 用于抑制重复通知与退避告警
+	LastSyncAt   time.Time `json:"last_sync_at"`            // 上次同步时间
+	LastOutcome  string    `json:"last_outcome"`            // 上次结果标签（Outcome.String()）
+	LastMessage  string    `json:"last_message"`            // 摘要
+	BackupBranch string    `json:"backup_branch,omitempty"` // local_wins 时的备份分支名
 }
 
 // Store 负责状态的读写，互斥锁保护并发安全。

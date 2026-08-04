@@ -28,12 +28,11 @@ struct AutoSyncApp: App {
         .defaultSize(width: 560, height: 420)
     }
 
-    /// 配置文件路径：~/Library/Application Support/AutoSync/autosync.conf.yaml（与 Go os.UserConfigDir 一致）。
+    /// 配置文件路径：~/.autosync/autosync.conf.yaml（与 Go UserDataDir 一致）。
     static func resolveConfigPath() -> String {
         let fm = FileManager.default
-        let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = dir.appendingPathComponent("AutoSync", isDirectory: true)
-        try? fm.createDirectory(at: appDir, withIntermediateDirectories: true)
-        return appDir.appendingPathComponent("autosync.conf.yaml").path
+        let appDir = (NSHomeDirectory() as NSString).appendingPathComponent(".autosync")
+        try? fm.createDirectory(atPath: appDir, withIntermediateDirectories: true)
+        return (appDir as NSString).appendingPathComponent("autosync.conf.yaml")
     }
 }

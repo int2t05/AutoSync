@@ -1,5 +1,6 @@
 // main.go 是 AutoSync 的入口，负责 CLI 分发与依赖装配。
-// sync 支持 --dry-run 只读预览与单实例锁；install/uninstall 通过注册表 Run 键开关开机自启。
+// sync 支持 --dry-run 只读预览与单实例锁；install/uninstall 跨平台开关开机自启
+//（Windows 注册表 Run 键 / Linux systemd user service / macOS 由壳 SMAppService 管理）。
 package main
 
 import (
@@ -27,7 +28,7 @@ func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
-// run 解析子命令并分发，返回退出码。无子命令时按平台分流（windows→tray / darwin→engine / linux→sync）。
+// run 解析子命令并分发，返回退出码。无子命令时按平台分流（windows→tray / darwin→engine / linux→daemon）。
 func run(args []string) int {
 	cmd, rest := parseCommand(args)
 	switch cmd {
@@ -65,7 +66,7 @@ func parseCommand(args []string) (cmd string, rest []string) {
 // --dry-run 时只输出同步计划，不联网、不写盘、不加锁。
 func runSync(rest []string) int {
 	fs := flag.NewFlagSet("autosync", flag.ContinueOnError)
-	configPath := fs.String("config", "", "配置文件路径（默认为可执行文件同目录的 config.yaml）")
+	configPath := fs.String("config", "", "配置文件路径（默认 ~/.autosync/config.yaml）")
 	dryRun := fs.Bool("dry-run", false, "只读预览同步计划，不实际执行")
 	if err := fs.Parse(rest); err != nil {
 		return 1
@@ -158,7 +159,7 @@ func runSync(rest []string) int {
 	return 0
 }
 
-// setupTrayEnv 装配托盘/engine 共享的运行时环境：用户数据目录 + 日志 + 多任务配置。
+// setupTrayEnv 装配托盘/engine 共享的运行时环境：~/.autosync/ + 日志 + 多任务配置。
 // mode 用于启动日志（"托盘"/"engine"）。返回 store + logger + cleanup；失败返回 error。
 func setupTrayEnv(configPath, mode string) (*configstore.Store, *log.Logger, func(), error) {
 	if err := config.EnsureUserDataDirs(); err != nil {
@@ -225,8 +226,8 @@ func resolveTrayConfigPath(explicit string) string {
 	return config.TrayConfigPath()
 }
 
-// runInstall 设置开机自启：注册表 Run 键写入托盘守护启动命令，登录即自启。
-// --config 可指定托盘配置路径（相对路径转绝对，避免登录时工作目录不同），缺省由托盘自行解析。
+// runInstall 设置开机自启（Windows 注册表 Run 键 / Linux systemd user service / macOS 由壳管理）。
+// --config 可指定配置路径（相对路径转绝对，避免登录时工作目录不同），缺省由守护自行解析。
 func runInstall(rest []string) int {
 	fs := flag.NewFlagSet("autosync install", flag.ContinueOnError)
 	configPath := fs.String("config", "", "托盘配置文件路径（默认 autosync.conf.yaml）")
@@ -258,7 +259,7 @@ func runInstall(rest []string) int {
 	return 0
 }
 
-// runUninstall 移除开机自启注册表项。
+// runUninstall 移除开机自启（Windows 注册表项 / Linux systemd unit）。
 func runUninstall() int {
 	if err := autostart.Disable(); err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 移除开机自启失败: %v\n", err)

@@ -1,4 +1,4 @@
-// SingleInstance 用 flock 锁 <datadir>/locks/autosync.app.lock 保证单实例。
+// SingleInstance 用 flock 锁 ~/.autosync/locks/autosync.app.lock 保证单实例。
 // 锁在进程退出时自动释放（fd 关闭）；二次启动 acquire 失败即退出。
 import Foundation
 import Darwin
@@ -17,8 +17,6 @@ enum SingleInstanceLock {
     }
 
     private static func appLockDir() -> String {
-        let fm = FileManager.default
-        let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return dir.appendingPathComponent("AutoSync/locks").path
+        (NSHomeDirectory() as NSString).appendingPathComponent(".autosync/locks")
     }
 }

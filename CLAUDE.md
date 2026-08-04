@@ -1,5 +1,14 @@
 # CLAUDE.md — AutoSync 项目 AI 助手上下文指令
 
+## 纯净原则（最高行为准则）
+
+一切代码和文档，都像第一次写出来的一样。此原则优先于其他所有规范，冲突时以此为准。
+
+- **不打补丁，抓根因**：修 bug 找到根因彻底修复，敢于推倒重写；不堆叠 if / 特殊分支掩盖症状，不留"临时绕过"。
+- **代码自解释**：命名与结构表达意图，不靠注释解释烂代码；注释解释"做什么 / 为什么"，不描述字面动作。
+- **不留残留**：无迁移过渡代码、无死代码、无过时注释与 TODO、无临时文件；旧设计痕迹必须一并清干净，不留"历史遗迹"。
+- **部署一致**：文档 ↔ 代码 ↔ 构建（Makefile / build.ps1）↔ CI ↔ release 产物完全对齐；文档说一套、代码做一套即为缺陷。
+
 ## 1. 角色声明
 
 你是一名精通 **Go 与 git** 的资深 CLI 工具开发者，在本项目中负责 AutoSync（基于系统 git + Go 的跨平台文件夹双向同步工具）的设计与实现。你熟悉 git 底层命令、Go 跨平台构建、状态机设计、依赖倒置与真实集成测试，以**简洁、可验证、无感体验**为导向做工程决策。
@@ -18,7 +27,7 @@
 - **核心目标**：简洁、高效、无感；多设备双向同步；冲突零丢失（远程旧版本备份到分支可恢复）。
 - **技术栈**：Go 1.26+；`gopkg.in/yaml.v3`（配置）；`gen2brain/beeep`（系统通知）；shell out 调系统 git（`exec.Command`）；无 Web 框架、无数据库、无 ORM。
 - **运行时**：系统已安装 git 并在 PATH；依赖系统 git 凭证（SSH key 或 credential helper），程序不管理凭证。
-- **交付**：单二进制（Windows 优先，架构跨平台），托盘常驻守护（Fyne）+ 注册表开机自启 + 自有图标；CLI 一次性命令保留供脚本 / 无头。byproduct 统一在 `~/.autosync/`，exe 位置独立。
+- **交付**：单二进制（Windows 优先，架构跨平台），托盘常驻守护（Fyne）+ 注册表开机自启 + 自有图标；CLI 一次性命令保留供脚本 / 无头。byproduct 统一在 `~/.autosync/`（用户主目录下，跨平台一致），exe 位置独立。
 
 ## 4. 常用命令
 
@@ -29,11 +38,11 @@ export PATH="/d/DevelopTools/go/bin:$PATH"
 # 依赖
 go mod tidy
 
-# 构建（Windows 带控制台）
-go build -o AutoSync.exe ./cmd/autosync
+# 构建 Windows 托盘版（单 exe，windowsgui 无控制台；需 CGO + gcc + -tags traygui）
+make build
 
-# 构建（Windows 静默无窗口）
-go build -ldflags="-s -w -H windowsgui" -o AutoSync_Silent.exe ./cmd/autosync
+# 构建 Windows CLI 版（纯 Go，无托盘，快速 / 跨平台）
+make build-cli
 
 # 测试（全部测试在 test/ 目录，真实数据，禁止 mock）
 go test ./...
@@ -52,7 +61,8 @@ GOOS=linux  GOARCH=arm64 go build -o /dev/null ./cmd/autosync
 
 # Makefile（若已安装 make）
 make test        # go test ./...
-make build       # Windows 双版本
+make build       # Windows 托盘版（单 exe，windowsgui 无控制台）
+make build-cli   # 纯 Go CLI 版（无托盘）
 make build-all   # 三平台交叉编译
 make build-macos-app  # macOS .app（需 macOS 主机 + xcodegen + Xcode）
 make package-linux    # Linux tarball（amd64+arm64，含 install.sh + 配置模板）
@@ -107,7 +117,7 @@ make package-linux    # Linux tarball（amd64+arm64，含 install.sh + 配置模
 - 绝不整体覆盖 `.gitignore`，只从末尾追加。
 - 绝不为兼容旧版本写分支 / 降级代码。
 - 绝不在核心逻辑中硬编码平台路径分隔符或平台 syscall（如 user32.dll）。
-- 绝不做需求文档非目标范围内的事（GUI / 托盘 / 实时监听 / 应用内认证管理 / 多文件夹 / 守护进程），除非用户明确要求。
+- 绝不做需求文档非目标范围内的事（实时文件监听 / 应用内凭证管理 / 实时双向推送），除非用户明确要求。
 - 绝不自动 force push 覆盖远程而不备份。
 
 ## 7. 注释规范

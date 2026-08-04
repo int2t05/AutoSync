@@ -18,15 +18,15 @@ flowchart TB
     NOTIFY[notify<br/>通知策略 + beeep]
     STATE[state<br/>状态持久化]
     LOCK[lock<br/>单实例锁]
-    SCHED[sched<br/>调度自安装]
+    TASKSCHED[tasksched<br/>任务调度]
   end
-  MAIN --> CFG & LOG & GI & GOP & SYNC & NOTIFY & STATE & LOCK & SCHED
+  MAIN --> CFG & LOG & GI & GOP & SYNC & NOTIFY & STATE & LOCK & TASKSCHED
   SYNC --> GOP
   NOTIFY --> SYNC
   GOP -.shell out.-> GIT[(系统 git)]
 ```
 
-程序不常驻。系统调度器按间隔触发 `autosync sync`，main 装配依赖后由 Syncer 执行一次状态机，结束即退出。
+无子命令时按平台分流为常驻守护（Windows 托盘 / macOS engine / Linux daemon）；`autosync sync` 子命令仍为一次性 CLI（脚本 / 无头）。
 
 ## 核心抽象
 
@@ -35,7 +35,7 @@ flowchart TB
 | 接口            | 位置   | 职责                           |
 | --------------- | ------ | ------------------------------ |
 | `GitOperator` | gitop  | git 操作抽象（读 / 写 / 冲突） |
-| `Scheduler`   | sched  | 定时任务注册 / 移除            |
+| `TaskScheduler` | tasksched | 每任务 ticker + 手动触发 |
 | `Notifier`    | notify | 系统通知投递                   |
 
 装饰器：`retryGit` 嵌入 `GitOperator`，仅覆盖网络方法（Fetch / Push / PushForce / PushBranch / DeleteRemoteBranch），其余按嵌入委托。
@@ -69,7 +69,7 @@ flowchart LR
 ```
 cmd/autosync/         入口：CLI 分发与依赖装配
 cmd/genicon          图标生成：SVG→PNG（oksvg 光栅化，仅改图标时运行）
-internal/config      配置加载 / 默认值 / 校验 + byproduct 路径解析（~/.autosync/）
+internal/config      配置加载 / 默认值 / 校验 + byproduct 路径解析（~/.autosync）
 internal/log         分级日志（文件 + 控制台，并发安全）
 internal/gitignore    .gitignore 追加式维护
 internal/gitop        GitOperator 接口 + exec 实现 + 重试装饰器
@@ -89,16 +89,10 @@ macos/                Swift MenuBarExtra 原生壳工程（macOS GUI）
 
 ## byproduct 与路径
 
-所有 byproduct 统一存放于各平台原生用户数据目录（可用 `AUTOSYNC_DATA_DIR` 覆盖），使 exe 位置独立（可装进只读目录、可任意位置打开）：
-
-| 平台 | 数据目录 |
-|------|----------|
-| Windows | `%AppData%\AutoSync` |
-| macOS | `~/Library/Application Support/AutoSync` |
-| Linux | `~/.config/AutoSync` |
+所有 byproduct 统一存放于用户主目录下 `~/.autosync/`（可用 `AUTOSYNC_DATA_DIR` 覆盖），使 exe 位置独立（可装进只读目录、可任意位置打开）：
 
 ```
-<数据目录>/
+~/.autosync/
   config.yaml                 # CLI 单任务配置
   autosync.conf.yaml          # 托盘多任务配置
   logs/autosync.log           # 日志（CLI + 守护共享）
@@ -110,11 +104,11 @@ macos/                Swift MenuBarExtra 原生壳工程（macOS GUI）
 
 ## 平台策略
 
-main 分支统一维护三平台（Windows + macOS + Linux），核心逻辑跨平台；平台差异用构建标签隔离（`//go:build windows` / `darwin` / `!windows && !darwin`）。`pidAlive`、`autostart` 按平台分文件实现；`tray` 用 `traygui` 标签隔离 Fyne（Windows）；macOS GUI 由 Swift `MenuBarExtra` 原生壳承担，Go 引擎以 `engine` 子命令作子进程经 stdin/stdout JSON IPC 供壳调用（见 V1.2 架构）；Linux 走 `daemon` 子命令 + systemd user service（无 GUI，对齐 Syncthing/Rclone）。路径用 `filepath`，不硬编码分隔符。
+main 分支统一维护三平台（Windows + macOS + Linux），核心逻辑跨平台；平台差异用构建标签隔离（`//go:build windows` / `darwin` / `!windows && !darwin`）。`pidAlive`、`autostart` 按平台分文件实现；`tray` 用 `traygui` 标签隔离 Fyne（Windows）；macOS GUI 由 Swift `MenuBarExtra` 原生壳承担，Go 引擎以 `engine` 子命令作子进程经 stdin/stdout JSON IPC 供壳调用（见 macOS 原生壳架构）；Linux 走 `daemon` 子命令 + systemd user service（无 GUI，对齐 Syncthing/Rclone）。路径用 `filepath`，不硬编码分隔符。
 
-## V1.1 架构：托盘守护
+## 托盘守护架构
 
-V1.1 在 V1.0 引擎之上加托盘守护层，引擎（Syncer / gitop / notify / state / lock）进程内复用，不启子进程。
+托盘守护层复用引擎（Syncer / gitop / notify / state / lock），进程内调用，不启子进程。
 
 ```mermaid
 flowchart TB
@@ -130,14 +124,14 @@ flowchart TB
 ```
 
 - **进程模型**：无参数启动 = 托盘守护（常驻 + 内置 ticker）；`autosync sync` = 一次性 CLI（脚本 / 无头）。单实例锁防多开。
-- **多任务**：`autosync.conf.yaml` 的 `tasks: [...]`，每任务独立 state（`autosync.state-<name>.json`）与 lock。旧单配置无 `tasks` 视为单任务（向后兼容）。
+- **多任务**：`autosync.conf.yaml` 的 `tasks: [...]`，每任务独立 state（`autosync.state-<name>.json`）与 lock。
 - **GUI**：Fyne（纯 Go，窗口 + 托盘一体，跨平台）。
-- **自启**：`install` / `uninstall` 改为注册表 `HKCU\...\Run` 键开关（替代 schtasks）。非 Windows 不支持。
+- **自启**：`install` / `uninstall` 开关开机自启（Windows 注册表 `HKCU\...\Run` 键 / Linux systemd user service / macOS 由壳 SMAppService 管理）。
 - **托盘菜单**：各任务手动同步 / 暂停、开机自启开关、打开配置、退出（同步状态经 `autosync status` 查询）。
 
-## V1.2 架构：macOS 原生壳 + 引擎子进程
+## macOS 原生壳架构
 
-V1.2 在 V1.1 引擎之上为 macOS 加 Swift `MenuBarExtra` 原生壳，Go 引擎以 `engine` 子命令作子进程经 stdin/stdout JSON IPC 供壳调用。引擎核心三平台共享，仅入口与平台层分化。
+macOS 走 Swift `MenuBarExtra` 原生壳，Go 引擎以 `engine` 子命令作子进程经 stdin/stdout JSON IPC 供壳调用。引擎核心三平台共享，仅入口与平台层分化。
 
 ```mermaid
 flowchart TB

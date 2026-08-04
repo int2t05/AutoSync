@@ -11,31 +11,13 @@
 | backup 清理无跨设备协调 | 一端清理了另一端未拉取的备份 | 清理仅按本地+远程引用，不感知其他设备是否已恢复 |
 | daemon 无运行时控制 IPC | Linux daemon 不能手动同步/暂停 | 不像 Win 托盘/macOS 壳有菜单；暂靠 `autosync sync` 单次 + 编辑配置重启 daemon |
 | 通知不分级 | 信息/警告/错误图标一致 | beeep 投递统一默认图标 |
-| 连续失败无降噪 | 持续失败会重复通知 | `ConsecutiveFailures` 字段已预留未启用 |
-
-## V1.1：托盘守护（已完成）
-
-V1.1 将 CLI 一次性工具升级为托盘常驻守护应用（方案 A），代码已落地。详见 [plan.md](plan.md)。
-
-- **托盘守护**：Fyne 托盘 + 配置窗口，内置 ticker 定时同步（取代 schtasks）。
-- **多文件夹**：`autosync.conf.yaml` 多任务，每任务独立 state/lock。
-- **开机自启**：注册表 Run 键（`install`/`uninstall` 新语义，托盘菜单可切换）。
-- **右键手动同步 / 暂停**：托盘菜单对指定任务立即触发或暂停。
-- **CLI 保留**：`sync`/`status` 供脚本/无头。
-- **byproduct 集中**：配置/日志/状态/锁统一在数据目录，exe 位置独立。
-- **自有图标**：托盘/窗口/exe 自有 SVG 图标。
-
-## V1.2：三平台守护（已完成）
-
-- **macOS**：Swift `MenuBarExtra` 壳 + Go 引擎子进程（JSON stdin/stdout IPC）；SMAppService 自启；flock 单实例。
-- **Linux**：`daemon` 子命令（复用 TaskScheduler，无 GUI）+ systemd user service 自启；tarball 打包（amd64/arm64）；手编多任务 YAML。
-- **路径原生**：byproduct 走 `os.UserConfigDir()`（Win `%AppData%`/macOS `~/Library`/Linux `~/.config`）。
+| 连续失败无降噪 | 持续失败会重复通知 | 未实现累计失败抑制 |
 
 ## 后续方向
 
 ```mermaid
 flowchart LR
-  NOW[V1.2: 三平台守护] --> B[实时文件监听]
+  NOW[三平台守护] --> B[实时文件监听]
   NOW --> C[HTTPS token 引导]
   NOW --> D[连续失败降噪]
   NOW --> E[backup 清理增强]

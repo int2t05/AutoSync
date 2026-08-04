@@ -2,13 +2,6 @@
 *.exe
 *.test
 *.out
-/AutoSync
-/AutoSync_Silent
-/autosync-engine-darwin-amd64
-/autosync-engine-darwin-arm64
-/autosync-linux
-/autosync-linux-amd64
-/autosync-linux-arm64
 /dist/
 *.dmg
 
@@ -25,7 +18,7 @@ config.yaml
 # Go
 /vendor/
 
-# byproduct（V1.1 起位于 ~/.autosync/；此处忽略仓库根意外生成的旧布局残留）
+# byproduct 位于用户数据目录；此处忽略仓库根意外生成的本地 byproduct 残留
 /autosync.conf.yaml
 /autosync.state-*.json
 /autosync.lock-*

@@ -19,7 +19,7 @@ flowchart LR
   U([用户]) --> CFG[配置 repo_dir + remote_url]
   U --> SYNC[sync 同步]
   U --> STATUS[status 查询]
-  U --> INST[install / uninstall 调度]
+  U --> INST[install / uninstall 自启]
   U --> DRY[dry-run 预览]
 
   SYNC --> COMMIT[自动提交本地变更]
@@ -41,7 +41,7 @@ flowchart LR
 | US-05 | 备份分支自动清理 | 保留最新 N 个，超出自动删除 |
 | US-06 | 同步状态可查 | `status` 显示上次同步时间 / 结果 / 备份分支 |
 | US-07 | 成功无感，异常通知 | 成功静默；冲突 / 失败弹通知 |
-| US-08 | 调度自安装 | `install` 注册系统定时任务，`uninstall` 移除 |
+| US-08 | 开机自启 | `install` 注册开机自启，`uninstall` 移除 |
 | US-09 | dry-run 预览 | 输出计划，不联网不改仓库 |
 | US-10 | .gitignore 自动维护 | 仅追加缺失条目，不覆盖既有配置 |
 
@@ -56,13 +56,13 @@ flowchart LR
 - FR-7 单实例锁，并发实例静默跳过。
 - FR-8 `status` 持久化并展示上次同步结果。
 - FR-9 通知策略：成功静默，InitDone 信息，冲突警告，失败错误。
-- FR-10 `install` / `uninstall` 开关开机自启（Windows 注册表 `Run` 键，登录启动托盘守护）。
+- FR-10 `install` / `uninstall` 开关开机自启（Windows 注册表 `Run` 键 / Linux systemd / macOS 壳 SMAppService）。
 - FR-11 `--dry-run` 只读输出同步计划。
 - FR-12 `.gitignore` 追加式维护。
 
-## V1.1 方向：托盘守护
+## 托盘守护
 
-V1.0 为 CLI 一次性命令 + schtasks 定时。V1.1 转为**托盘常驻守护进程**：双击 exe 弹配置窗口，后台托盘定时同步，右键手动同步，支持多文件夹。CLI 保留供脚本/无头。
+双击 exe 启动**托盘常驻守护进程**：弹配置窗口，后台托盘定时同步，右键手动同步，支持多文件夹。CLI 保留供脚本/无头。
 
 ```mermaid
 flowchart LR
@@ -80,11 +80,11 @@ flowchart LR
 | US-12 | GUI 配置多任务 | 窗口内增删改多份同步任务，持久化 |
 | US-13 | 托盘后台定时同步 | 守护进程按各任务 interval 自动同步 |
 | US-14 | 右键手动同步 | 托盘菜单对指定任务立即触发同步 |
-| US-15 | 开机自启 | install 写注册表 Run 键，登录后自动托盘运行 |
+| US-15 | 开机自启 | install 注册开机自启，登录后自动守护运行 |
 
 ## 非目标
 
-实时文件监听（inotify/FSEvents）、应用内凭证管理、实时双向推送。GUI / 托盘 / 多文件夹 / 守护进程在 V1.1 引入。详见 [TODO.md](TODO.md)。
+实时文件监听（inotify/FSEvents）、应用内凭证管理、实时双向推送。详见 [TODO.md](TODO.md)。
 
 ## 冲突策略
 

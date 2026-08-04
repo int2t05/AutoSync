@@ -20,7 +20,7 @@ import (
 // systemd user service 的 ExecStart 指向本子命令；Ctrl+C 或 `systemctl --user stop` 发 SIGTERM 优雅退出。
 func runDaemon(rest []string) int {
 	fs := flag.NewFlagSet("autosync daemon", flag.ContinueOnError)
-	configPath := fs.String("config", "", "多任务配置文件路径（默认 ~/.config/AutoSync/autosync.conf.yaml）")
+	configPath := fs.String("config", "", "多任务配置文件路径（默认 ~/.autosync/autosync.conf.yaml）")
 	if err := fs.Parse(rest); err != nil {
 		return 1
 	}

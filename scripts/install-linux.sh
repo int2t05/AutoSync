@@ -1,10 +1,10 @@
 #!/bin/bash
-# install-linux.sh 安装 AutoSync 到 ~/.local/bin，配置模板到 ~/.config/AutoSync/。
+# install-linux.sh 安装 AutoSync 到 ~/.local/bin，配置模板到 ~/.autosync/。
 # 装完运行 `autosync install` 注册 systemd 开机自启。用法：bash install-linux.sh
 set -euo pipefail
 
 BIN_DIR="$HOME/.local/bin"
-CONF_DIR="$HOME/.config/AutoSync"
+CONF_DIR="$HOME/.autosync"
 mkdir -p "$BIN_DIR" "$CONF_DIR"
 
 cp autosync "$BIN_DIR/autosync"
