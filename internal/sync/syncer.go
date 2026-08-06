@@ -41,6 +41,23 @@ func (s *Syncer) Run() SyncResult {
 		return SyncResult{Outcome: OutcomeInitDone, Message: "初始化完成，已推送首次同步"}
 	}
 
+	// C1+C4：配置 ↔ 仓库一致性核对——改 remote_url/branch 显式失败而非静默失效，
+	// 且拒绝在无关远程/分支上做任何写操作（防把文件推到用户自己的其他仓库 / 跨分支 rebase 重写历史）
+	remoteURL, err := s.git.GetRemoteURL(s.cfg.Remote)
+	if err != nil {
+		return s.fail(fmt.Sprintf("远程 %q 不存在（配置错误）", s.cfg.Remote), err)
+	}
+	if gitop.NormalizeRemoteURL(remoteURL) != gitop.NormalizeRemoteURL(s.cfg.RemoteURL) {
+		return s.fail("远程地址与配置不一致", fmt.Errorf("仓库=%s 配置=%s", remoteURL, s.cfg.RemoteURL))
+	}
+	curBranch, err := s.git.CurrentBranch()
+	if err != nil {
+		return s.fail("获取当前分支失败", err)
+	}
+	if curBranch != s.cfg.Branch {
+		return s.fail("当前分支与配置不一致", fmt.Errorf("本地=%s 配置=%s", curBranch, s.cfg.Branch))
+	}
+
 	// S1.5：仓库无 HEAD 提交（用户手动 git init 的空仓库）——对齐远程分支或首推，避免永久 Failed
 	hasHead, err := s.git.HasHead()
 	if err != nil {
@@ -329,6 +346,21 @@ func (s *Syncer) DryRun() DryRunPlan {
 	if !s.git.IsRepo() {
 		steps = append(steps, "首次运行：将初始化仓库（git init -b + remote add + 首次提交 + push -u）")
 		return DryRunPlan{Steps: steps}
+	}
+	// C1+C4：配置 ↔ 仓库一致性只读核对（与真实运行一致）
+	remoteURL, err := s.git.GetRemoteURL(s.cfg.Remote)
+	if err != nil {
+		return DryRunPlan{Steps: []string{"远程 " + s.cfg.Remote + " 不存在（配置错误）"}}
+	}
+	if gitop.NormalizeRemoteURL(remoteURL) != gitop.NormalizeRemoteURL(s.cfg.RemoteURL) {
+		return DryRunPlan{Steps: []string{"远程地址与配置不一致：仓库=" + remoteURL + " 配置=" + s.cfg.RemoteURL}}
+	}
+	curBranch, err := s.git.CurrentBranch()
+	if err != nil {
+		return DryRunPlan{Steps: []string{"获取当前分支失败: " + err.Error()}}
+	}
+	if curBranch != s.cfg.Branch {
+		return DryRunPlan{Steps: []string{"当前分支与配置不一致：本地=" + curBranch + " 配置=" + s.cfg.Branch}}
 	}
 	hasHead, err := s.git.HasHead()
 	if err != nil {

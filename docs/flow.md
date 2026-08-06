@@ -11,7 +11,9 @@ flowchart TD
   LOCK -->|是| ISREPO{是仓库?}
   ISREPO -->|否| INIT[init + 首次提交 + push -u]
   INIT --> DONE1([InitDone])
-  ISREPO -->|是| HASHEAD{有 HEAD 提交?}
+  ISREPO -->|是| VERIFY{远程/分支一致?}
+  VERIFY -->|否| FAILC([Failed 配置不一致])
+  VERIFY -->|是| HASHEAD{有 HEAD 提交?}
   HASHEAD -->|否| FETCH2[fetch --prune]
   FETCH2 --> EXIST2{远程分支存在?}
   EXIST2 -->|是| CO[checkout -B 对齐远程]
@@ -48,13 +50,14 @@ flowchart TD
 **数据流**
 
 1. **加锁**：`O_EXCL` 创建 `autosync.lock` 写 PID；失败则读 PID 判断持有进程存活，存活跳过，已死接管。
-2. **初始化**：`git init -b <branch>` → `remote add` → `add -A` → `commit --allow-empty` → `push -u`。仓库已存在但无 HEAD 提交（手动 `git init` 的空仓库）：fetch 后远程分支存在则 `checkout -B` 对齐，否则 `commit --allow-empty` + `push -u` 首推。
-3. **提交**：`git add -A` → `git status --porcelain` 判变更 → `git commit -m "<模板>"`。
-4. **拉取引用**：`git fetch --prune <remote>`（重试装饰器包裹），prune 清除远端已删除分支的陈旧跟踪引用。
-5. **关系判定**：`rev-parse HEAD` 与 `<remote>/<branch>` 比较；不等则 `merge-base` 定四态。
-6. **合并**：`git pull --rebase <remote> <branch>`；失败时检测 rebase 是否进行中（rebase-merge/rebase-apply 目录存在）：真冲突才 `git rebase --abort` 转冲突处理；网络 / 钩子等其他失败直接 Failed（绝不 reset --hard 销毁本地已提交工作）。
-7. **推送**：`git push` 或 `git push --force-with-lease`（重试包裹）。
-8. **收尾**：写 `autosync.state.json` → 按结果通知 → 释放锁。
+2. **校验**：`git remote get-url <remote>` 与配置 `remote_url` 归一化比对（忽略协议/用户信息/尾部 `.git`）、`git branch --show-current` 与配置 `branch` 比对；不一致直接 Failed（配置错误不再静默失效，也拒绝在无关远程/分支上写操作）。
+3. **初始化**：`git init -b <branch>` → `remote add` → `add -A` → `commit --allow-empty` → `push -u`。仓库已存在但无 HEAD 提交（手动 `git init` 的空仓库）：fetch 后远程分支存在则 `checkout -B` 对齐，否则 `commit --allow-empty` + `push -u` 首推。
+4. **提交**：`git add -A` → `git status --porcelain` 判变更 → `git commit -m "<模板>"`。
+5. **拉取引用**：`git fetch --prune <remote>`（重试装饰器包裹），prune 清除远端已删除分支的陈旧跟踪引用。
+6. **关系判定**：`rev-parse HEAD` 与 `<remote>/<branch>` 比较；不等则 `merge-base` 定四态。
+7. **合并**：`git pull --rebase <remote> <branch>`；失败时检测 rebase 是否进行中（rebase-merge/rebase-apply 目录存在）：真冲突才 `git rebase --abort` 转冲突处理；网络 / 钩子等其他失败直接 Failed（绝不 reset --hard 销毁本地已提交工作）。
+8. **推送**：`git push` 或 `git push --force-with-lease`（重试包裹）。
+9. **收尾**：写 `autosync.state.json` → 按结果通知 → 释放锁。
 
 ## 冲突处理
 

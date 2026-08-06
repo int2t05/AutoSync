@@ -61,6 +61,9 @@ type GitOperator interface {
 	RebaseInProgress() (bool, error)
 	RebaseAbort() error
 	Push(remote, branch string) error
+	// 配置一致性
+	GetRemoteURL(remote string) (string, error)   // remote get-url：核对配置 remote_url 与仓库实际远程
+	CurrentBranch() (string, error)               // branch --show-current：核对配置 branch 与本地当前分支
 	// 冲突处理
 	PushForce(remote, branch string) error                        // --force-with-lease
 	CreateBackupBranch(remote, branch, backupName string) error   // 从 remote/<branch> 建备份分支
@@ -69,7 +72,7 @@ type GitOperator interface {
 	DeleteLocalBranch(branchName string) error                    // 删除本地分支
 	ListBackupBranches(remote string) ([]string, error)           // 列出 backup/remote-*（本地+远程去重）
 	ResetHardToRemote(remote, branch string) error                // reset --hard + clean -fd
-	DiffNameOnly(remote, branch string) ([]string, error)         // 本地 HEAD 与 remote/branch 的差异文件（Modified + Deleted）
+	DiffNameOnly(remote, branch string) ([]string, error)         // 本地 HEAD 与 remote/branch 的差异文件（Added + Modified + Deleted）
 }
 
 // execGit 通过 shell out 调用系统 git 实现 GitOperator。
@@ -201,6 +204,23 @@ func (g *execGit) PushFirst(remote, branch string) error {
 	}
 	_, err := g.run("push", "-u", remote, branch)
 	return err
+}
+
+// GetRemoteURL 读取指定远程的实际 URL（git remote get-url）。
+func (g *execGit) GetRemoteURL(remote string) (string, error) {
+	return g.run("remote", "get-url", remote)
+}
+
+// CurrentBranch 返回当前分支名；分离头或无分支（空仓库 unborn）时返回 error。
+func (g *execGit) CurrentBranch() (string, error) {
+	out, err := g.run("branch", "--show-current")
+	if err != nil {
+		return "", err
+	}
+	if out == "" {
+		return "", fmt.Errorf("当前处于分离头状态，未检出分支")
+	}
+	return out, nil
 }
 
 // StageAll 暂存全部变更（git add -A）。
@@ -387,6 +407,30 @@ func (g *execGit) DiffNameOnly(remote, branch string) ([]string, error) {
 		}
 	}
 	return files, nil
+}
+
+// NormalizeRemoteURL 把远程 URL 归一化为可比较的 host[:port]/path 形式。
+// 用于核对配置 remote_url 与仓库实际远程是否一致：忽略尾部 .git、协议（ssh/https/file）、
+// 用户信息（git@）与 scp 简写（git@host:path ↔ https://host/path）的差异。
+func NormalizeRemoteURL(url string) string {
+	u := strings.TrimSpace(url)
+	u = strings.TrimSuffix(u, "/")
+	u = strings.TrimSuffix(u, ".git")
+	u = strings.TrimSuffix(u, "/")
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	if i := strings.LastIndex(u, "@"); i >= 0 {
+		u = u[i+1:]
+	}
+	// scp 简写 host:path → host/path；Windows 盘符（C:\）后的冒号跳过
+	if i := strings.Index(u, ":"); i >= 0 && !strings.HasPrefix(u[i+1:], "/") && !strings.HasPrefix(u[i+1:], "\\") {
+		u = u[:i] + "/" + u[i+1:]
+	}
+	if i := strings.Index(u, "/"); i >= 0 {
+		return strings.ToLower(u[:i]) + u[i:]
+	}
+	return strings.ToLower(u)
 }
 
 // truncate 截断字符串到最大长度，便于日志输出。

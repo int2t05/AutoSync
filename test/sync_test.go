@@ -429,6 +429,89 @@ func TestSync_EmptyRepo_NoHead_PushFirst(t *testing.T) {
 	}
 }
 
+// TestNormalizeRemoteURL 验证远程 URL 归一化：协议/用户信息/尾部 .git 差异视为等价。
+func TestNormalizeRemoteURL(t *testing.T) {
+	cases := []struct{ a, b string }{
+		{"https://github.com/int2t05/File.git", "git@github.com:int2t05/File"},
+		{"https://github.com/int2t05/File", "https://github.com/int2t05/File.git"},
+		{"ssh://git@github.com/int2t05/File", "github.com:int2t05/File"},
+	}
+	for _, c := range cases {
+		na, nb := gitop.NormalizeRemoteURL(c.a), gitop.NormalizeRemoteURL(c.b)
+		if na != nb {
+			t.Errorf("归一化不等: %q vs %q → %q vs %q", c.a, c.b, na, nb)
+		}
+	}
+}
+
+// TestSync_RemoteURLMismatch_Fail 验证配置 remote_url 与仓库实际远程不一致 → 显式 Failed（此前静默失效）。
+func TestSync_RemoteURLMismatch_Fail(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+
+	cfg := newConfig(repo, remote)
+	cfg.RemoteURL = remote + "/other" // 与实际远程不一致
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeFailed {
+		t.Fatalf("Outcome = %s, 期望 Failed（远程地址不一致不得静默继续）", result.Outcome)
+	}
+}
+
+// TestSync_RemoteURLEquivalent_Pass 验证等价 URL（尾部 .git 差异）不被误判为不一致。
+func TestSync_RemoteURLEquivalent_Pass(t *testing.T) {
+	base := makeTempDir(t, "autosync-eq-*")
+	remoteDir := filepath.Join(base, "remote.git")
+	runGit(t, base, "init", "--bare", "-b", "main", remoteDir)
+	repo := makeWorkRepo(t)
+	addRemote(t, repo, "origin", remoteDir)
+	pushToRemote(t, repo, "origin", "main")
+
+	cfg := newConfig(repo, remoteDir)
+	cfg.RemoteURL = strings.TrimSuffix(remoteDir, ".git") // 等价形式
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome == sync.OutcomeFailed {
+		t.Fatalf("等价 URL 不应判定为不一致: %s", result.Message)
+	}
+}
+
+// TestSync_RemoteMissing_Fail 验证配置的远程名不存在 → 显式 Failed（此前无限静默"下次重试"）。
+func TestSync_RemoteMissing_Fail(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+
+	cfg := newConfig(repo, remote)
+	cfg.Remote = "upstream" // 仓库只有 origin
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeFailed {
+		t.Fatalf("Outcome = %s, 期望 Failed（远程名不存在为配置错误）", result.Outcome)
+	}
+}
+
+// TestSync_BranchMismatch_Fail 验证本地当前分支与配置 branch 不一致 → 显式 Failed，且无写操作。
+func TestSync_BranchMismatch_Fail(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	runGit(t, repo, "checkout", "-b", "dev") // 当前分支 dev，配置 branch=main
+
+	result := newSyncer(t, newConfig(repo, remote)).Run()
+
+	if result.Outcome != sync.OutcomeFailed {
+		t.Fatalf("Outcome = %s, 期望 Failed（分支不一致不得跨分支 rebase）", result.Outcome)
+	}
+	if cur := runGit(t, repo, "branch", "--show-current"); cur != "dev" {
+		t.Errorf("HEAD 不应被改动，当前分支 = %s", cur)
+	}
+}
+
 // TestSync_DryRun_ReadOnly 验证 dry-run 只读：报告计划但不提交、不推送。
 // UpToDate 状态下制造未提交变更，断言 HEAD 与远程均未改变，且计划提示将提交。
 func TestSync_DryRun_ReadOnly(t *testing.T) {
