@@ -48,6 +48,9 @@ func (r Relation) String() string {
 type GitOperator interface {
 	IsRepo() bool
 	Init(remote, remoteURL, branch string) error
+	HasHead() (bool, error)
+	CheckoutRemote(remote, branch string) error
+	PushFirst(remote, branch string) error
 	StageAll() error
 	HasChanges() (bool, error)
 	Commit(msg string) error
@@ -175,6 +178,29 @@ func (g *execGit) Init(remote, remoteURL, branch string) error {
 		}
 	}
 	return nil
+}
+
+// HasHead 判断仓库是否有 HEAD 提交；无 HEAD（手动 git init 的空仓库，unborn 分支）返回 false。
+func (g *execGit) HasHead() (bool, error) {
+	if _, err := g.exec("rev-parse", "--verify", "HEAD"); err != nil {
+		return false, nil // unborn HEAD，非错误
+	}
+	return true, nil
+}
+
+// CheckoutRemote 基于远程分支创建本地分支并检出（unborn 仓库拉取远程历史落地）。
+func (g *execGit) CheckoutRemote(remote, branch string) error {
+	_, err := g.run("checkout", "-B", branch, remote+"/"+branch)
+	return err
+}
+
+// PushFirst 在空仓库（无 HEAD）上完成首次提交并推送：commit --allow-empty + push -u。
+func (g *execGit) PushFirst(remote, branch string) error {
+	if _, err := g.run("commit", "--allow-empty", "-m", "init: first sync"); err != nil {
+		return err
+	}
+	_, err := g.run("push", "-u", remote, branch)
+	return err
 }
 
 // StageAll 暂存全部变更（git add -A）。

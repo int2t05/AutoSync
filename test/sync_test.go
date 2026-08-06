@@ -393,6 +393,42 @@ func TestSync_ConflictFiles_LocalOnlyFile_Preserved(t *testing.T) {
 	}
 }
 
+// TestSync_EmptyRepo_NoHead_PullRemote 验证空仓库（用户手动 git init、无提交）+ 远程已有分支：
+// 拉取远程分支对齐，不再永久 Failed。
+func TestSync_EmptyRepo_NoHead_PullRemote(t *testing.T) {
+	dir := makeTempDir(t, "autosync-emptyhead-*")
+	runGit(t, dir, "init", "-b", "main") // 空仓库，无提交（unborn HEAD）
+	remote := makeBareRemote(t)
+	pushAuxCommitToRemote(t, remote, "remote.txt", "remote") // 远程已有提交
+	addRemote(t, dir, "origin", remote)
+
+	result := newSyncer(t, newConfig(dir, remote)).Run()
+
+	if result.Outcome == sync.OutcomeFailed {
+		t.Fatalf("空仓库拉取远程不应 Failed: %s", result.Message)
+	}
+	if !fileExists(t, filepath.Join(dir, "remote.txt")) {
+		t.Errorf("本地应已拉取远程文件 remote.txt")
+	}
+}
+
+// TestSync_EmptyRepo_NoHead_PushFirst 验证空仓库 + 空远程：完成首次提交推送。
+func TestSync_EmptyRepo_NoHead_PushFirst(t *testing.T) {
+	dir := makeTempDir(t, "autosync-emptyhead-*")
+	runGit(t, dir, "init", "-b", "main")
+	remote := makeBareRemote(t) // 空远程
+	addRemote(t, dir, "origin", remote)
+
+	result := newSyncer(t, newConfig(dir, remote)).Run()
+
+	if result.Outcome != sync.OutcomePushed {
+		t.Fatalf("Outcome = %s, 期望 Pushed（空仓库首推）: %s", result.Outcome, result.Message)
+	}
+	if !remoteHasBranch(t, remote, "main") {
+		t.Errorf("远程应创建 main 分支")
+	}
+}
+
 // TestSync_DryRun_ReadOnly 验证 dry-run 只读：报告计划但不提交、不推送。
 // UpToDate 状态下制造未提交变更，断言 HEAD 与远程均未改变，且计划提示将提交。
 func TestSync_DryRun_ReadOnly(t *testing.T) {

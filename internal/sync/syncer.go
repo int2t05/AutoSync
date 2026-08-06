@@ -41,6 +41,34 @@ func (s *Syncer) Run() SyncResult {
 		return SyncResult{Outcome: OutcomeInitDone, Message: "初始化完成，已推送首次同步"}
 	}
 
+	// S1.5：仓库无 HEAD 提交（用户手动 git init 的空仓库）——对齐远程分支或首推，避免永久 Failed
+	hasHead, err := s.git.HasHead()
+	if err != nil {
+		return s.fail("检查 HEAD 失败", err)
+	}
+	if !hasHead {
+		s.logger.Info("仓库无提交，尝试对齐远程...")
+		if err := s.git.Fetch(s.cfg.Remote); err != nil {
+			s.logger.Warn(fmt.Sprintf("拉取远程失败（下次重试）: %v", err))
+			return SyncResult{Outcome: OutcomeNoChanges, Message: "本地无提交，远程暂不可达，下次重试"}
+		}
+		exists, err := s.git.RemoteBranchExists(s.cfg.Remote, s.cfg.Branch)
+		if err != nil {
+			return s.fail("检查远程分支失败", err)
+		}
+		if exists {
+			if err := s.git.CheckoutRemote(s.cfg.Remote, s.cfg.Branch); err != nil {
+				return s.fail("拉取远程分支失败", err)
+			}
+			s.logger.Info("已对齐远程分支，继续同步本地文件...")
+		} else {
+			if err := s.git.PushFirst(s.cfg.Remote, s.cfg.Branch); err != nil {
+				return s.fail("初始化推送失败", err)
+			}
+			return SyncResult{Outcome: OutcomePushed, Message: "初始化完成（空仓库首推）"}
+		}
+	}
+
 	// S2：暂存并提交本地变更
 	if err := s.git.StageAll(); err != nil {
 		return s.fail("暂存失败", err)
@@ -300,6 +328,14 @@ func (s *Syncer) DryRun() DryRunPlan {
 	var steps []string
 	if !s.git.IsRepo() {
 		steps = append(steps, "首次运行：将初始化仓库（git init -b + remote add + 首次提交 + push -u）")
+		return DryRunPlan{Steps: steps}
+	}
+	hasHead, err := s.git.HasHead()
+	if err != nil {
+		return DryRunPlan{Steps: []string{"检查 HEAD 失败: " + err.Error()}}
+	}
+	if !hasHead {
+		steps = append(steps, "仓库无提交：将拉取远程分支对齐，若远程无该分支则完成首次推送")
 		return DryRunPlan{Steps: steps}
 	}
 	hasChanges, err := s.git.HasChanges()
