@@ -55,6 +55,7 @@ type GitOperator interface {
 	RemoteBranchExists(remote, branch string) (bool, error)
 	RelationTo(remote, branch string) (Relation, error)
 	PullRebase(remote, branch string) error
+	RebaseInProgress() (bool, error)
 	RebaseAbort() error
 	Push(remote, branch string) error
 	// 冲突处理
@@ -230,7 +231,9 @@ func (g *execGit) RelationTo(remote, branch string) (Relation, error) {
 	}
 	mb, err := g.run("merge-base", localHead, remoteHead)
 	if err != nil {
-		return RelDiverged, nil // 无共同祖先视为分叉
+		// 无共同祖先（远程被 force-push 重写 / 换仓库）：
+		// 绝不静默回退 Diverged——那会让 local_wins 借 rebase/force push 覆盖无关远程。
+		return 0, fmt.Errorf("merge-base 失败（本地与远程无共同祖先，可能远程被重写或换仓库）: %w", err)
 	}
 	switch {
 	case mb == localHead:
@@ -247,6 +250,18 @@ func (g *execGit) RelationTo(remote, branch string) (Relation, error) {
 func (g *execGit) PullRebase(remote, branch string) error {
 	_, err := g.run("pull", "--rebase", remote, branch)
 	return err
+}
+
+// RebaseInProgress 判断仓库是否处于 rebase 进行中（存在 rebase-merge/rebase-apply 目录）。
+// 供同步器区分 pull --rebase 失败是"真冲突"还是"网络/钩子等其他原因"：
+// 只有真冲突才中止 rebase 并交给冲突策略，其余失败须显式报错而非 reset / force push。
+func (g *execGit) RebaseInProgress() (bool, error) {
+	for _, d := range []string{"rebase-merge", "rebase-apply"} {
+		if _, err := os.Stat(filepath.Join(g.repoDir, ".git", d)); err == nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // RebaseAbort 中止进行中的 rebase，恢复到 rebase 前状态。
@@ -331,10 +346,11 @@ func (g *execGit) ResetHardToRemote(remote, branch string) error {
 	return err
 }
 
-// DiffNameOnly 列出本地 HEAD 与 remote/branch 的差异文件（Modified + Deleted，即本地有内容且与远程不同的文件）。
-// 供 conflict_files 策略读取需保留为副本的本地文件列表。
+// DiffNameOnly 列出本地 HEAD 与 remote/branch 的差异文件（Added + Modified + Deleted）。
+// 供 conflict_files 策略读取需保留为副本的本地文件：Added 是本地独有文件，
+// 不含它将随 reset --hard + clean -fd 被静默删除。
 func (g *execGit) DiffNameOnly(remote, branch string) ([]string, error) {
-	out, err := g.run("diff", "--name-only", "--diff-filter=MD", "HEAD", remote+"/"+branch)
+	out, err := g.run("diff", "--name-only", "--diff-filter=AMD", "HEAD", remote+"/"+branch)
 	if err != nil {
 		return nil, err
 	}

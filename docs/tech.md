@@ -54,7 +54,7 @@ flowchart LR
   MR -->|否| DV[Diverged<br/>pull --rebase]
 ```
 
-四态替代布尔"是否分叉"：布尔判定漏掉 RemoteAhead，该态直接 push 会非快进失败。
+四态替代布尔"是否分叉"：布尔判定漏掉 RemoteAhead，该态直接 push 会非快进失败。merge-base 失败（本地与远程无共同祖先：远程被 force-push 重写或换仓库）显式报错、不回退 Diverged——避免 local_wins 借 rebase/force push 覆盖无关远程。
 
 ## 关键决策
 

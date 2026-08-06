@@ -100,10 +100,18 @@ func (s *Syncer) Run() SyncResult {
 		// 远程有本地没有的提交：远程领先（快进）或真正分叉（重放），均用 rebase 合并
 		s.logger.Warn("远程有新提交，尝试 rebase 合并...")
 		if err := s.git.PullRebase(s.cfg.Remote, s.cfg.Branch); err != nil {
-			// rebase 冲突：中止 rebase，按 conflict_strategy 处理
-			s.logger.Warn("Rebase 冲突，中止 rebase 并按策略处理...")
-			s.git.RebaseAbort()
-			return s.handleConflict()
+			// 仅"真冲突"（rebase 已开始）才中止并按 conflict_strategy 处理；
+			// 网络/钩子等其他失败直接报错——绝不 reset --hard 销毁本地已提交工作。
+			rebase, rerr := s.git.RebaseInProgress()
+			if rerr != nil {
+				return s.fail("检查 rebase 状态失败", rerr)
+			}
+			if rebase {
+				s.logger.Warn("Rebase 冲突，中止 rebase 并按策略处理...")
+				s.git.RebaseAbort()
+				return s.handleConflict()
+			}
+			return s.fail("rebase 合并失败", err)
 		}
 		if err := s.git.Push(s.cfg.Remote, s.cfg.Branch); err != nil {
 			return s.fail("Rebase 后推送失败", err)

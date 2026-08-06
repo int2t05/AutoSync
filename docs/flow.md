@@ -31,9 +31,11 @@ flowchart TD
   REBASE --> OK{成功?}
   OK -->|是| PUSHMERGE[push]
   PUSHMERGE --> DONE5([AutoMerged])
-  OK -->|否| ABORT[rebase --abort]
+  OK -->|否| RB{rebase 进行中?}
+  RB -->|是| ABORT[rebase --abort]
   ABORT --> CONFLICT[冲突处理]
   CONFLICT --> DONE6([ConflictResolved])
+  RB -->|否 网络/钩子| FAIL1([Failed])
 ```
 
 **数据流**
@@ -43,7 +45,7 @@ flowchart TD
 3. **提交**：`git add -A` → `git status --porcelain` 判变更 → `git commit -m "<模板>"`。
 4. **拉取引用**：`git fetch --prune <remote>`（重试装饰器包裹），prune 清除远端已删除分支的陈旧跟踪引用。
 5. **关系判定**：`rev-parse HEAD` 与 `<remote>/<branch>` 比较；不等则 `merge-base` 定四态。
-6. **合并**：`git pull --rebase <remote> <branch>`；失败 `git rebase --abort` 后转冲突处理。
+6. **合并**：`git pull --rebase <remote> <branch>`；失败时检测 rebase 是否进行中（rebase-merge/rebase-apply 目录存在）：真冲突才 `git rebase --abort` 转冲突处理；网络 / 钩子等其他失败直接 Failed（绝不 reset --hard 销毁本地已提交工作）。
 7. **推送**：`git push` 或 `git push --force-with-lease`（重试包裹）。
 8. **收尾**：写 `autosync.state.json` → 按结果通知 → 释放锁。
 
@@ -69,7 +71,7 @@ flowchart TD
 
 - **local_wins**：`git branch backup/remote-<ts> <remote>/<branch>` → `git push <remote> backup/remote-<ts>` → `git push --force-with-lease <remote> <branch>` → 列 `backup/remote-*` 按名降序留最新 `backup_keep` 个，余下本地 `-D` + 远程 `--delete`。远程旧版本保存在备份分支可 checkout 恢复。
 - **remote_wins**：`git reset --hard <remote>/<branch>` → `git clean -fd`。本地未推送改动丢弃。
-- **conflict_files**：`git diff --name-only --diff-filter=MD HEAD <remote>/<branch>` 列差异文件 → `os.ReadFile` 读本地版到内存 → `git reset --hard <remote>/<branch>` + `git clean -fd`（副本未写入，不受影响）→ 写 `<file>.sync-conflict-<ts>.<ext>` 副本 → `git add -A` + `commit` + `push`。本地版以副本入 git 同步所有设备，远程版为主文件。
+- **conflict_files**：`git diff --name-only --diff-filter=AMD HEAD <remote>/<branch>` 列差异文件（A 本地独有 / M 修改 / D 删除）→ `os.ReadFile` 读本地版到内存 → `git reset --hard <remote>/<branch>` + `git clean -fd`（副本未写入，不受影响）→ 写 `<file>.sync-conflict-<ts>.<ext>` 副本 → `git add -A` + `commit` + `push`。本地版以副本入 git 同步所有设备，远程版为主文件。
 
 ## dry-run
 

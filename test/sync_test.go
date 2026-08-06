@@ -5,6 +5,7 @@ package tests
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -306,6 +307,89 @@ func TestSync_FetchPrune_RemoteBranchDeleted(t *testing.T) {
 	}
 	if !remoteHasBranch(t, remote, "main") {
 		t.Errorf("远程 main 分支应被重新创建")
+	}
+}
+
+// TestSync_PullFail_NotConflict_NoReset 验证非冲突的 pull 失败（pre-rebase 钩子拒绝）不被当 rebase 冲突处理：
+// remote_wins 策略下不再 reset --hard 销毁本地已提交工作，而是显式 Failed。
+func TestSync_PullFail_NotConflict_NoReset(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	commitFile(t, repo, "local.txt", "local")               // 本地已提交
+	pushAuxCommitToRemote(t, remote, "remote.txt", "remote") // 远程领先 → Diverged
+
+	// pre-rebase 钩子直接拒绝：rebase 未开始即失败，属非冲突原因
+	hooksDir := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, hooksDir, "pre-rebase", "#!/bin/sh\nexit 1\n")
+
+	cfg := newConfig(repo, remote)
+	cfg.ConflictStrategy = "remote_wins"
+	beforeHEAD := headShort(t, repo)
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeFailed {
+		t.Fatalf("Outcome = %s, 期望 Failed（非冲突 pull 失败不得触发 remote_wins 销毁）", result.Outcome)
+	}
+	if after := headShort(t, repo); after != beforeHEAD {
+		t.Errorf("HEAD 不应移动 %s → %s", beforeHEAD, after)
+	}
+	if !fileExists(t, filepath.Join(repo, "local.txt")) {
+		t.Errorf("本地已提交文件 local.txt 不应被 reset --hard 销毁")
+	}
+}
+
+// TestSync_MergeBaseFail_NoForcePush 验证无共同祖先（远程被换/重写）时绝不自动 rebase/force push：
+// local_wins 策略下远程 main 保持原样，同步显式 Failed。
+func TestSync_MergeBaseFail_NoForcePush(t *testing.T) {
+	repo := makeWorkRepo(t)                                       // 本地独立根提交（README）
+	remote := makeBareRemote(t)                                   // 空裸远程
+	pushAuxCommitToRemote(t, remote, "remote.txt", "remote")       // 远程独立根提交，与本地无共同祖先
+	addRemote(t, repo, "origin", remote)
+
+	beforeRemote := runGit(t, remote, "rev-parse", "main")
+	result := newSyncer(t, newConfig(repo, remote)).Run()
+
+	if result.Outcome != sync.OutcomeFailed {
+		t.Fatalf("Outcome = %s, 期望 Failed（无共同祖先不得自动合并/强推）", result.Outcome)
+	}
+	if after := runGit(t, remote, "rev-parse", "main"); after != beforeRemote {
+		t.Errorf("远程 main 应保持不变 %s → %s", beforeRemote, after)
+	}
+}
+
+// TestSync_ConflictFiles_LocalOnlyFile_Preserved 验证 conflict_files 保留本地独有文件为副本：
+// 本地新增 local.txt + 远程改 same.txt 冲突 → local.txt 必须落 .sync-conflict 副本（此前被 reset+clean 静默删除）。
+func TestSync_ConflictFiles_LocalOnlyFile_Preserved(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	commitFile(t, repo, "local.txt", "local") // 本地独有文件（Added）
+	commitFile(t, repo, "same.txt", "LOCAL")  // 与远程冲突的文件（Modified）
+	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE")
+
+	cfg := newConfig(repo, remote)
+	cfg.ConflictStrategy = "conflict_files"
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeConflictResolved {
+		t.Fatalf("Outcome = %s, 期望 ConflictResolved", result.Outcome)
+	}
+	if !fileContains(t, filepath.Join(repo, "same.txt"), "REMOTE") {
+		t.Errorf("主文件 same.txt 应为 REMOTE")
+	}
+	// 本地独有文件落副本，内容保留
+	matches, err := filepath.Glob(filepath.Join(repo, "local.sync-conflict-*.txt"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("应存在 1 个 local.sync-conflict-*.txt 副本, got %d (err=%v)", len(matches), err)
+	}
+	if !fileContains(t, matches[0], "local") {
+		t.Errorf("本地独有文件副本内容应为 'local'")
 	}
 }
 
