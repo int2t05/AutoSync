@@ -1,14 +1,19 @@
 // gitop.go 定义 Git 操作的抽象接口与基于系统 git 的实现。
 // 同步引擎依赖 GitOperator 接口而非具体实现（依赖倒置），便于装饰器扩展（重试、dry-run）。
-// 所有 git 命令统一设置 GIT_TERMINAL_PROMPT=0 与 GIT_MERGE_AUTOEDIT=no，避免交互阻塞。
+// 所有 git 命令统一设置 GIT_TERMINAL_PROMPT=0 与 GIT_MERGE_AUTOEDIT=no，避免交互阻塞，
+// 并统一经 exec() 执行：带超时终止挂起命令，杜绝裸 exec.Command 路径。
 package gitop
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"autosync/internal/log"
 )
@@ -67,27 +72,84 @@ type GitOperator interface {
 type execGit struct {
 	repoDir string
 	logger  *log.Logger
+	timeout time.Duration // 单条 git 命令的完成上限：挂起（网络黑洞/SSH 认证卡住）时强制终止
 }
 
 // NewExecGit 创建基于系统 git 的操作器。
-func NewExecGit(repoDir string, logger *log.Logger) GitOperator {
-	return &execGit{repoDir: repoDir, logger: logger}
+// timeout 为每条 git 命令的超时；本地命令毫秒级完成，网络命令挂起时由它兜底，
+// 保证调用方（ticker goroutine / Stop / 退出路径）的等待有界。
+func NewExecGit(repoDir string, logger *log.Logger, timeout time.Duration) GitOperator {
+	return &execGit{repoDir: repoDir, logger: logger, timeout: timeout}
 }
 
 // run 执行 git 命令，返回去空白后的合并输出；失败时记日志并返回 error。
 func (g *execGit) run(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = g.repoDir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no")
-	applyHideWindow(cmd) // Windows 下隐藏 git 子进程窗口，避免同步时弹黑窗
-	out, err := cmd.CombinedOutput()
-	s := strings.TrimSpace(string(out))
+	out, err := g.exec(args...)
+	s := strings.TrimSpace(out)
 	if err != nil {
-		g.logger.Error(fmt.Sprintf("git %s 失败: %s | %s", strings.Join(args, " "), err, truncate(s, 200)))
-		return s, fmt.Errorf("git %s: %s", strings.Join(args, " "), truncate(s, 200))
+		g.logger.Error(fmt.Sprintf("git %s 失败: %v | %s", strings.Join(args, " "), err, truncate(s, 200)))
+		return s, err
 	}
 	g.logger.Info(fmt.Sprintf("git %s → %s", strings.Join(args, " "), truncate(s, 100)))
 	return s, nil
+}
+
+// exec 执行 git 命令并返回合并输出（stdout+stderr），带超时与隐藏窗口，不记日志。
+// 全部 git 命令的唯一执行入口。超时双保险：
+//   - CommandContext 杀掉直接子进程；
+//   - 输出管道读端设 deadline——孙子进程（hook/ssh 等继承写端）持管道时，
+//     仅杀直接进程仍会让读端无限等 EOF，deadline 保证返回。
+// 超时时返回 context.DeadlineExceeded（可 errors.Is 判定）。
+func (g *execGit) exec(args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = g.repoDir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no")
+	applyHideWindow(cmd) // Windows 下隐藏 git 子进程窗口，避免同步时弹黑窗
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+
+	// 并发读两路输出（顺序读会因另一路管道填满而死锁），分入独立 buffer 避免并发写。
+	// 超时兜底：CommandContext 只杀直接子进程；hook/ssh 等孙子进程继承管道写端时，
+	// 读端仍会等 EOF 无限阻塞（Windows 管道不支持 SetReadDeadline），故定时强制关闭读端。
+	var stdoutBuf, stderrBuf bytes.Buffer
+	done := make(chan struct{}, 2)
+	drain := func(r io.ReadCloser, buf *bytes.Buffer) {
+		defer r.Close()
+		defer func() { done <- struct{}{} }()
+		_, _ = io.Copy(buf, r)
+	}
+	go drain(stdout, &stdoutBuf)
+	go drain(stderr, &stderrBuf)
+	timeout := time.AfterFunc(g.timeout, func() {
+		stdout.Close()
+		stderr.Close()
+	})
+	defer timeout.Stop()
+	<-done
+	<-done
+
+	err = cmd.Wait()
+	out := stdoutBuf.String() + stderrBuf.String()
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
+	}
+	if err != nil {
+		return out, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return out, nil
 }
 
 // IsRepo 通过 .git 存在判断是否已是 git 仓库。
@@ -144,11 +206,8 @@ func (g *execGit) Fetch(remote string) error {
 
 // RemoteBranchExists 判断远程跟踪分支是否存在；不存在返回 false 而非 error。
 func (g *execGit) RemoteBranchExists(remote, branch string) (bool, error) {
-	cmd := exec.Command("git", "rev-parse", "--verify", remote+"/"+branch)
-	cmd.Dir = g.repoDir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	applyHideWindow(cmd)
-	if err := cmd.Run(); err != nil {
+	_, err := g.exec("rev-parse", "--verify", remote+"/"+branch)
+	if err != nil {
 		return false, nil // 引用不存在，非错误
 	}
 	return true, nil
@@ -193,11 +252,7 @@ func (g *execGit) PullRebase(remote, branch string) error {
 // RebaseAbort 中止进行中的 rebase，恢复到 rebase 前状态。
 // 可能没有进行中的 rebase（如 pull 因非冲突原因失败），此时报错可忽略。
 func (g *execGit) RebaseAbort() error {
-	cmd := exec.Command("git", "rebase", "--abort")
-	cmd.Dir = g.repoDir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no")
-	applyHideWindow(cmd)
-	cmd.CombinedOutput() // 忽略输出与错误
+	_, _ = g.exec("rebase", "--abort") // 忽略输出与错误
 	return nil
 }
 

@@ -207,6 +207,36 @@ func TestTaskScheduler_Reload(t *testing.T) {
 	}
 }
 
+// TestScheduler_StopBounded 验证 git 命令挂起时 Stop 仍有界返回（此前 wg.Wait 永久等待）。
+// pre-push hook 使推送挂起 30s，git_timeout=1s 强制终止后 ticker goroutine 退出，Stop 快速返回。
+func TestScheduler_StopBounded(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	hooksDir := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\nsleep 30\n")
+
+	task := schedTask(t, "bounded", repo, remote, "50ms")
+	task.GitTimeout = "1s"
+	task.RetryCount = 1 // 单次尝试，避免重试放大等待
+	if err := task.Normalize(); err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
+	s.Start()
+
+	time.Sleep(300 * time.Millisecond) // 等待首次同步进入挂起的 fetch
+	start := time.Now()
+	s.Stop()
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("Stop 耗时 %v，期望 3s 内有界返回（git_timeout=1s）", elapsed)
+	}
+}
+
 // TestTaskScheduler_RunnersRaceWithReload 验证 Runners 与 Reload 并发无数据竞争（-race 下应通过）。
 func TestTaskScheduler_RunnersRaceWithReload(t *testing.T) {
 	repo := makeWorkRepo(t)

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"autosync/internal/config"
 	"autosync/internal/gitop"
@@ -29,6 +30,7 @@ func newConfig(repoDir, remoteURL string) *config.Config {
 }
 
 // newSyncer 为测试构造 Syncer：真实 execGit + 静默日志（无文件、无控制台，避免污染输出）。
+// git 超时给 1 分钟：本地测试仓库命令毫秒级完成，仅防挂起无限期阻塞测试。
 func newSyncer(t *testing.T, cfg *config.Config) *sync.Syncer {
 	t.Helper()
 	logger, err := log.New("", false)
@@ -36,7 +38,7 @@ func newSyncer(t *testing.T, cfg *config.Config) *sync.Syncer {
 		t.Fatal(err)
 	}
 	t.Cleanup(logger.Close)
-	gitOp := gitop.NewExecGit(cfg.RepoDir, logger)
+	gitOp := gitop.NewExecGit(cfg.RepoDir, logger, time.Minute)
 	return sync.NewSyncer(cfg, gitOp, logger)
 }
 

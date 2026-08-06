@@ -27,6 +27,8 @@ type Config struct {
 	RetryBaseDelay    string        `yaml:"retry_base_delay" json:"retry_base_delay,omitempty"` // 重试退避基数字符串，默认 "1s"
 	RetryBaseDelayDur time.Duration `yaml:"-" json:"-"`                                      // 解析后的重试退避基数
 	CommitMsgFormat   string        `yaml:"commit_msg_format" json:"commit_msg_format,omitempty"` // 提交消息模板，默认 "auto sync: {{.Timestamp}}"
+	GitTimeout        string        `yaml:"git_timeout" json:"git_timeout,omitempty"`       // 单条 git 命令超时，默认 "60s"（防挂起冻结调度/退出）
+	GitTimeoutDur     time.Duration `yaml:"-" json:"-"`                                      // 解析后的 git 命令超时
 	ShowConsole       bool          `yaml:"show_console" json:"show_console,omitempty"`      // 是否输出到控制台
 	Ignore            []string      `yaml:"ignore" json:"ignore,omitempty"`                 // 写入 repo_dir/.gitignore 的条目
 }
@@ -87,6 +89,9 @@ func (c *Config) applyDefaults() {
 	if c.CommitMsgFormat == "" {
 		c.CommitMsgFormat = "auto sync: {{.Timestamp}}"
 	}
+	if c.GitTimeout == "" {
+		c.GitTimeout = "60s"
+	}
 	if len(c.Ignore) == 0 {
 		c.Ignore = append([]string(nil), defaultIgnore...)
 	}
@@ -125,6 +130,14 @@ func (c *Config) validateRequired() error {
 		return fmt.Errorf("config: retry_base_delay 解析失败 %q: %w", c.RetryBaseDelay, err)
 	}
 	c.RetryBaseDelayDur = rdur
+	gdur, err := time.ParseDuration(c.GitTimeout)
+	if err != nil {
+		return fmt.Errorf("config: git_timeout 解析失败 %q: %w", c.GitTimeout, err)
+	}
+	if gdur <= 0 {
+		return fmt.Errorf("config: git_timeout 需大于 0（当前 %q）", c.GitTimeout)
+	}
+	c.GitTimeoutDur = gdur
 	return nil
 }
 

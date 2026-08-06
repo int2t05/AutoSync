@@ -95,7 +95,7 @@ func runSync(rest []string) int {
 
 	// 构造 git 操作器：execGit + 重试装饰器（网络操作指数退避）
 	gitOp := gitop.NewRetryGit(
-		gitop.NewExecGit(cfg.RepoDir, logger),
+		gitop.NewExecGit(cfg.RepoDir, logger, cfg.GitTimeoutDur),
 		cfg.RetryCount, cfg.RetryBaseDelayDur, logger,
 	)
 	syncer := sync.NewSyncer(cfg, gitOp, logger)

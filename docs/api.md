@@ -161,6 +161,7 @@ autosync tray --background    # 后台启动（不弹窗口，供开机自启 / 
 | `backup_keep` | 否 | `10` | backup 分支保留数 |
 | `retry_count` | 否 | `3` | 网络操作重试次数 |
 | `retry_base_delay` | 否 | `1s` | 重试退避基数（指数） |
+| `git_timeout` | 否 | `60s` | 单条 git 命令超时（大仓库/慢网络请调大） |
 | `commit_msg_format` | 否 | `auto sync: {{.Timestamp}}` | 提交消息模板 |
 | `log_file` | 否 | `autosync.log` | 日志文件名 |
 | `state_file` | 否 | `autosync.state.json` | 状态文件名 |

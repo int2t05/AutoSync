@@ -71,7 +71,7 @@ func (r *TaskRunner) Run() sync.SyncResult {
 
 	// 构造 git 操作器（execGit + 重试装饰器）并执行同步状态机
 	gitOp := gitop.NewRetryGit(
-		gitop.NewExecGit(r.task.RepoDir, r.logger),
+		gitop.NewExecGit(r.task.RepoDir, r.logger, r.task.GitTimeoutDur),
 		r.task.RetryCount, r.task.RetryBaseDelayDur, r.logger,
 	)
 	result := sync.NewSyncer(&r.task.Config, gitOp, r.logger).Run()

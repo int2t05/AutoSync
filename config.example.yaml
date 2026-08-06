@@ -31,6 +31,9 @@ retry_count: 3
 # 重试退避基数（默认 1s，按 1s/2s/4s 指数退避）
 retry_base_delay: "1s"
 
+# 单条 git 命令超时（默认 60s；大仓库/慢网络请调大，防挂起冻结同步）
+git_timeout: "60s"
+
 # 提交消息模板（默认 "auto sync: {{.Timestamp}}"）
 commit_msg_format: "auto sync: {{.Timestamp}}"
 

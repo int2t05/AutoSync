@@ -12,6 +12,14 @@
 | daemon 无运行时控制 IPC | Linux daemon 不能手动同步/暂停 | 不像 Win 托盘/macOS 壳有菜单；暂靠 `autosync sync` 单次 + 编辑配置重启 daemon |
 | 通知不分级 | 信息/警告/错误图标一致 | beeep 投递统一默认图标 |
 | 连续失败无降噪 | 持续失败会重复通知 | 未实现累计失败抑制 |
+| 文档漂移 | 配置字段/默认值与实现不符 | api.md 声称 `log_file`/`state_file`/旧单配置兼容/interval 最小 1m 均未实现；锁与状态文件名与文档不一致 |
+| 状态文件非原子写 | 崩溃可能写坏状态 | `state.Save` 直接 `os.WriteFile`，守护与 CLI 并发读写可能读到半写 JSON |
+| 双配置并存 | CLI 与托盘配置分离，`status` 只读 default | `config.yaml` 与 `autosync.conf.yaml` 同机并存，`autosync status` 对多任务无效 |
+| interval 无下限 | 可配毫秒级忙轮询 | 文档声称最小 1 分钟，`validate` 未落地 |
+| 托盘自启不携带 `--config` | 自启加载默认配置 | 托盘菜单自启开关不传当前实例配置路径 |
+| engine Scanner 64KB 上限 | 大配置 JSON 超限静默退出 | `config-save` 单行超 64KB 时主循环退出且无 bye |
+| YAML 未知字段静默忽略 | 拼错字段名无提示 | `yaml.Unmarshal` 无 KnownFields 约束 |
+| gitignore 追加非原子 | 崩溃残留半行条目 | `Ensure` 逐条 O_APPEND 追加 |
 
 ## 后续方向
 
@@ -35,7 +43,6 @@ flowchart LR
 ### 架构优化（审计延后）
 
 - **抽取 `sync.Orchestrator`**：`runSync` 与 `TaskRunner.Run` 的 lock→gitignore→syncer→state→notify 编排重复，抽共享层。
-- **gitop exec 超时 + 错误包装**：`execGit.run` 无超时（hung git 冻结 ticker/Reload/退出），改 `context.WithTimeout`；错误用 `%w` 包装。
 - **Reload 非阻塞**：`TaskScheduler.Reload` 的 `Stop.wg.Wait` 阻塞 UI 线程，改 goroutine + `fyne.Do` 刷菜单。
 - **RelationTo 破坏性回退**：merge-base 失败回退 `RelDiverged` 可能致 `local_wins` 覆盖无关远程，需显式处理。
 - **log 格式化助手**：补 `Infof`/`Warnf`/`Errorf` 统一格式化风格（当前 Sprintf 与拼接混用）。
@@ -49,21 +56,20 @@ flowchart LR
 
 | 位置 | TODO |
 |------|------|
-| `internal/sync/syncer.go:206` | DryRun 可选 fetch 以预判远程领先（当前基于陈旧远程引用，可能误报 UpToDate） |
-| `internal/sync/syncer.go:247` | 提交消息模板支持完整 Go 模板语法与更多变量（变更文件数等） |
+| `internal/sync/syncer.go:290` | DryRun 可选 fetch 以预判远程领先（当前基于陈旧远程引用，可能误报 UpToDate） |
+| `internal/sync/syncer.go:331` | 提交消息模板支持完整 Go 模板语法与更多变量（变更文件数等） |
 
 ### 通知与告警
 
 | 位置 | TODO |
 |------|------|
 | `internal/notify/beeep.go:17` | 按 severity 区分通知图标（当前统一默认图标） |
-| `internal/state/state.go:18` | 启用 `ConsecutiveFailures` 抑制重复通知与退避告警 |
 
 ## 一致性审计
 
 双向校验：代码内 `// TODO:` 注释 ↔ 本文档清单。
 
-- 代码 TODO 总数：**4**
-- 本文档收录：**4**
+- 代码 TODO 总数：**3**
+- 本文档收录：**3**
 - 校验方式：`git grep -n "TODO:" -- '*.go'` 输出与上表一一对应。
 - 维护约定：新增 / 删除代码 TODO 须同步更新本文档；本文档条目须能在代码中定位。

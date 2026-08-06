@@ -60,6 +60,7 @@ flowchart LR
 
 - **`--force-with-lease`**：local_wins 强推用 lease 而非裸 `--force`，fetch 与 push 间远程被改写则拒绝。
 - **单实例锁**：`O_EXCL` 创建锁文件写 PID；存活进程持有则跳过，已死 / 损坏则接管。`pidAlive` 跨平台（Unix `kill -0` / Windows `tasklist`）。
+- **git 命令统一超时**：全部 git 命令带超时（默认 `git_timeout=60s`），防网络挂起冻结调度/退出。超时双保险——`CommandContext` 杀直接进程 + 定时强制关闭管道读端（Windows 管道不支持 deadline，孙子进程如 hook/ssh 继承写端时仅杀直接进程仍会阻塞读）。
 - **重试**：纯控制流 `Retry` 指数退避，装饰器仅覆盖网络方法。
 - **追加式 .gitignore**：仅追加缺失条目，绝不覆盖用户既有配置。
 - **配置宽松加载**：`LoadLenient` 跳过 repo_dir 存在性校验，供 status / install 在仓库未就绪时使用。
