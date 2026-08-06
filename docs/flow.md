@@ -15,7 +15,7 @@ flowchart TD
   ADD --> CHG{有变更?}
   CHG -->|是| COMMIT[commit]
   CHG -->|否| NOCOMMIT[跳过提交]
-  COMMIT --> FETCH[fetch]
+  COMMIT --> FETCH[fetch --prune]
   NOCOMMIT --> FETCH
   FETCH --> EXIST{远程分支存在?}
   EXIST -->|否| PUSHDIRECT[push 新建远程分支]
@@ -41,7 +41,7 @@ flowchart TD
 1. **加锁**：`O_EXCL` 创建 `autosync.lock` 写 PID；失败则读 PID 判断持有进程存活，存活跳过，已死接管。
 2. **初始化**：`git init -b <branch>` → `remote add` → `add -A` → `commit --allow-empty` → `push -u`。
 3. **提交**：`git add -A` → `git status --porcelain` 判变更 → `git commit -m "<模板>"`。
-4. **拉取引用**：`git fetch <remote>`（重试装饰器包裹）。
+4. **拉取引用**：`git fetch --prune <remote>`（重试装饰器包裹），prune 清除远端已删除分支的陈旧跟踪引用。
 5. **关系判定**：`rev-parse HEAD` 与 `<remote>/<branch>` 比较；不等则 `merge-base` 定四态。
 6. **合并**：`git pull --rebase <remote> <branch>`；失败 `git rebase --abort` 后转冲突处理。
 7. **推送**：`git push` 或 `git push --force-with-lease`（重试包裹）。

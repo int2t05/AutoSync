@@ -286,6 +286,27 @@ func TestSync_BackupCleanup(t *testing.T) {
 	}
 }
 
+// TestSync_FetchPrune_RemoteBranchDeleted 验证远程分支被删除后同步能重建而非误报"已是最新"。
+// 无 --prune 时 fetch 保留陈旧 origin/main 跟踪引用 → 误判 UpToDate；--prune 清除后应重新推送。
+func TestSync_FetchPrune_RemoteBranchDeleted(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+
+	// 另一设备删除远程 main 分支
+	runGit(t, remote, "update-ref", "-d", "refs/heads/main")
+
+	result := newSyncer(t, newConfig(repo, remote)).Run()
+
+	if result.Outcome != sync.OutcomePushed {
+		t.Fatalf("Outcome = %s, 期望 Pushed（--prune 清除陈旧引用后重建分支）", result.Outcome)
+	}
+	if !remoteHasBranch(t, remote, "main") {
+		t.Errorf("远程 main 分支应被重新创建")
+	}
+}
+
 // TestSync_DryRun_ReadOnly 验证 dry-run 只读：报告计划但不提交、不推送。
 // UpToDate 状态下制造未提交变更，断言 HEAD 与远程均未改变，且计划提示将提交。
 func TestSync_DryRun_ReadOnly(t *testing.T) {

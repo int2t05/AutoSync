@@ -136,8 +136,9 @@ func (g *execGit) Commit(msg string) error {
 }
 
 // Fetch 拉取远程引用（不合并）。
+// --prune 删除远端已不存在的跟踪分支，避免陈旧引用导致假 UpToDate / 假"远程分支存在"。
 func (g *execGit) Fetch(remote string) error {
-	_, err := g.run("fetch", remote)
+	_, err := g.run("fetch", "--prune", remote)
 	return err
 }
 
