@@ -5,10 +5,8 @@
 package gitop
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,11 +100,11 @@ func (g *execGit) run(args ...string) (string, error) {
 }
 
 // exec 执行 git 命令并返回合并输出（stdout+stderr），带超时与隐藏窗口，不记日志。
-// 全部 git 命令的唯一执行入口。超时双保险：
-//   - CommandContext 杀掉直接子进程；
-//   - 输出管道读端设 deadline——孙子进程（hook/ssh 等继承写端）持管道时，
-//     仅杀直接进程仍会让读端无限等 EOF，deadline 保证返回。
-// 超时时返回 context.DeadlineExceeded（可 errors.Is 判定）。
+// 全部 git 命令的唯一执行入口。
+// 输出重定向到临时文件而非管道：hook/ssh 等孙子进程继承管道写端时，仅杀直接进程
+// 仍会让读端无限等 EOF（Windows 管道不支持 deadline，Close 解除阻塞也不可靠）；
+// 文件则天然不阻塞 cmd.Wait。超时时 CommandContext 杀直接进程，Wait 有界返回。
+// 返回 context.DeadlineExceeded（可 errors.Is 判定）。
 func (g *execGit) exec(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
 	defer cancel()
@@ -115,48 +113,29 @@ func (g *execGit) exec(args ...string) (string, error) {
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no")
 	applyHideWindow(cmd) // Windows 下隐藏 git 子进程窗口，避免同步时弹黑窗
 
-	stdout, err := cmd.StdoutPipe()
+	f, err := os.CreateTemp("", "autosync-git-*.out")
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
-	}
+	outPath := f.Name()
+	defer os.Remove(outPath) // 超时挂起时孙子进程可能仍持句柄，删除失败可忽略
+	cmd.Stdout = f
+	cmd.Stderr = f
 
 	if err := cmd.Start(); err != nil {
+		f.Close()
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
-
-	// 并发读两路输出（顺序读会因另一路管道填满而死锁），分入独立 buffer 避免并发写。
-	// 超时兜底：CommandContext 只杀直接子进程；hook/ssh 等孙子进程继承管道写端时，
-	// 读端仍会等 EOF 无限阻塞（Windows 管道不支持 SetReadDeadline），故定时强制关闭读端。
-	var stdoutBuf, stderrBuf bytes.Buffer
-	done := make(chan struct{}, 2)
-	drain := func(r io.ReadCloser, buf *bytes.Buffer) {
-		defer r.Close()
-		defer func() { done <- struct{}{} }()
-		_, _ = io.Copy(buf, r)
-	}
-	go drain(stdout, &stdoutBuf)
-	go drain(stderr, &stderrBuf)
-	timeout := time.AfterFunc(g.timeout, func() {
-		stdout.Close()
-		stderr.Close()
-	})
-	defer timeout.Stop()
-	<-done
-	<-done
-
-	err = cmd.Wait()
-	out := stdoutBuf.String() + stderrBuf.String()
+	err = cmd.Wait() // 仅等进程句柄：超时由 CommandContext 终止
+	f.Close()
+	data, _ := os.ReadFile(outPath)
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
 	}
 	if err != nil {
-		return out, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		return string(data), fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
-	return out, nil
+	return string(data), nil
 }
 
 // IsRepo 通过 .git 存在判断是否已是 git 仓库。
