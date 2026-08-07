@@ -30,7 +30,7 @@ func NewSyncer(cfg *config.Config, git gitop.GitOperator, logger *log.Logger) *S
 // Run 执行单次同步流程，返回结果。
 func (s *Syncer) Run() SyncResult {
 	s.logger.Info("========== 同步开始 ==========")
-	s.logger.Info(fmt.Sprintf("目录=%s 策略=%s", s.cfg.RepoDir, s.cfg.ConflictStrategy))
+	s.logger.Infof("目录=%s 策略=%s", s.cfg.RepoDir, s.cfg.ConflictStrategy)
 
 	// S1：首次运行初始化
 	if !s.git.IsRepo() {
@@ -66,7 +66,7 @@ func (s *Syncer) Run() SyncResult {
 	if !hasHead {
 		s.logger.Info("仓库无提交，尝试对齐远程...")
 		if err := s.git.Fetch(s.cfg.Remote); err != nil {
-			s.logger.Warn(fmt.Sprintf("拉取远程失败（下次重试）: %v", err))
+			s.logger.Warnf("拉取远程失败（下次重试）: %v", err)
 			return SyncResult{Outcome: OutcomeNoChanges, Message: "本地无提交，远程暂不可达，下次重试"}
 		}
 		exists, err := s.git.RemoteBranchExists(s.cfg.Remote, s.cfg.Branch)
@@ -106,7 +106,7 @@ func (s *Syncer) Run() SyncResult {
 	// S3：拉取远程引用。网络瞬态失败时降级：本地已提交，远程未同步，下次重试，
 	// 不报 Failed 触发错误通知，避免网络抖动频繁打扰用户。
 	if err := s.git.Fetch(s.cfg.Remote); err != nil {
-		s.logger.Warn(fmt.Sprintf("拉取远程失败（下次重试）: %v", err))
+		s.logger.Warnf("拉取远程失败（下次重试）: %v", err)
 		return SyncResult{Outcome: OutcomeNoChanges, Message: "本地已提交，远程暂不可达，下次重试"}
 	}
 
@@ -243,7 +243,7 @@ func (s *Syncer) conflictFiles(timestamp string) SyncResult {
 	for _, rel := range files {
 		data, err := os.ReadFile(filepath.Join(s.cfg.RepoDir, rel))
 		if err != nil {
-			s.logger.Warn(fmt.Sprintf("读取本地文件 %s 失败，跳过: %v", rel, err))
+			s.logger.Warnf("读取本地文件 %s 失败，跳过: %v", rel, err)
 			continue
 		}
 		copies = append(copies, localCopy{relPath: rel, content: data})

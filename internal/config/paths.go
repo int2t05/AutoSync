@@ -57,11 +57,6 @@ func DaemonLockPath() string {
 	return filepath.Join(UserDataDir(), "locks", "autosync.daemon.lock")
 }
 
-// CLIConfigPath 返回 CLI 单任务配置路径 ~/.autosync/config.yaml。
-func CLIConfigPath() string {
-	return filepath.Join(UserDataDir(), "config.yaml")
-}
-
 // TrayConfigPath 返回多任务配置路径 ~/.autosync/autosync.conf.yaml。
 func TrayConfigPath() string {
 	return filepath.Join(UserDataDir(), "autosync.conf.yaml")

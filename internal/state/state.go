@@ -4,7 +4,9 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -59,13 +61,32 @@ func (s *Store) Save(st State) error {
 	return s.saveLocked(st)
 }
 
-// saveLocked 序列化并写入状态（须持 s.mu）。
+// saveLocked 序列化并原子写入状态（临时文件 + rename，防崩溃写坏半份 JSON，须持 s.mu）。
 func (s *Store) saveLocked(st State) error {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0644)
+	dir := filepath.Dir(s.path)
+	tmp, err := os.CreateTemp(dir, ".autosync.state-*.tmp")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("写入状态失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("关闭临时文件失败: %w", err)
+	}
+	if err := os.Rename(tmpName, s.path); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("替换状态文件失败: %w", err)
+	}
+	return nil
 }
 
 // Update 在锁内读-改-写：读取现有状态，回调 mod 就地修改后保存。

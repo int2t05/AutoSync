@@ -4,7 +4,9 @@
 package configstore
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,10 +37,20 @@ type taskFile struct {
 	Tasks []*Task `yaml:"tasks"`
 }
 
-// Load 从 path 读取多任务配置，对每个任务填充默认值并校验。
+// Load 从 path 读取多任务配置，对每个任务填充默认值并完整校验（含 repo_dir 存在性）。
 // 文件不存在或无任务时返回空存储：托盘以空配置启动，由配置窗口新增任务后 Save 落盘。
-// 无 tasks 键的旧单配置视为名为 "default" 的单任务。
 func Load(path string) (*Store, error) {
+	return loadStore(path, false)
+}
+
+// LoadLenient 加载多任务配置但跳过 repo_dir 存在性校验。
+// 供 status 等命令在仓库目录暂时不可用时仍能列出任务与读取状态。
+func LoadLenient(path string) (*Store, error) {
+	return loadStore(path, true)
+}
+
+// loadStore 读取并校验多任务配置；lenient 为 true 时跳过 repo_dir 存在性校验。
+func loadStore(path string, lenient bool) (*Store, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -54,8 +66,14 @@ func Load(path string) (*Store, error) {
 		if t.Name == "" {
 			return nil, fmt.Errorf("任务名不能为空")
 		}
-		if err := t.Normalize(); err != nil {
-			return nil, fmt.Errorf("任务 %q 校验失败: %w", t.Name, err)
+		var nerr error
+		if lenient {
+			nerr = t.NormalizeLenient()
+		} else {
+			nerr = t.Normalize()
+		}
+		if nerr != nil {
+			return nil, fmt.Errorf("任务 %q 校验失败: %w", t.Name, nerr)
 		}
 	}
 	if err := checkUniqueNames(tasks); err != nil {
@@ -73,9 +91,15 @@ func NewStore(path string) *Store {
 }
 
 // parseTasks 解析 YAML 顶层 tasks 列表；空文件或 tasks:[] 返回空。
+// KnownFields(true) 使未知字段报错而非静默忽略，杜绝拼错字段名无提示。
 func parseTasks(data []byte) ([]*Task, error) {
 	var tf taskFile
-	if err := yaml.Unmarshal(data, &tf); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&tf); err != nil {
+		if err == io.EOF {
+			return nil, nil // 空文件：空任务列表
+		}
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 	return tf.Tasks, nil
@@ -120,6 +144,9 @@ func (s *Store) List() []*Task {
 	copy(out, s.tasks)
 	return out
 }
+
+// Path 返回配置文件路径（供开机自启命令携带 --config）。
+func (s *Store) Path() string { return s.path }
 
 // Get 按名查找任务，未找到返回 nil。
 func (s *Store) Get(name string) *Task {

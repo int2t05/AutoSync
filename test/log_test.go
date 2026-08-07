@@ -40,6 +40,36 @@ func TestLogger_WritesFile(t *testing.T) {
 	}
 }
 
+// TestLogger_FormatMethods 验证 Infof/Warnf/Errorf 按格式化字符串写入文件。
+func TestLogger_FormatMethods(t *testing.T) {
+	d, err := os.MkdirTemp("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(d)
+	p := d + "/autosync.log"
+
+	lg, err := log.New(p, false)
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	lg.Infof("信息 %d", 1)
+	lg.Warnf("警告 %s", "x")
+	lg.Errorf("错误 %v", os.ErrNotExist)
+	lg.Close()
+
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("读日志失败: %v", err)
+	}
+	s := string(data)
+	for _, want := range []string{"[INFO]", "[WARN]", "[ERROR]", "信息 1", "警告 x"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("日志缺少 %q\n实际内容:\n%s", want, s)
+		}
+	}
+}
+
 // TestLogger_NoFile_ConsoleOnly 验证 logFile 为空时仅控制台、不创建文件、不报错。
 func TestLogger_NoFile_ConsoleOnly(t *testing.T) {
 	lg, err := log.New("", true)

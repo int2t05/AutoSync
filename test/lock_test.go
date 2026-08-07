@@ -36,8 +36,8 @@ func TestLock_SecondAcquireSkips(t *testing.T) {
 	}
 }
 
-// TestLock_StaleTakeover 验证锁文件中 PID 对应进程已死时，新实例接管锁。
-// 999999 几乎不可能是存活进程，触发 readPID → pidAlive=false → 删除重建。
+// TestLock_StaleTakeover 验证锁文件无启动时间（损坏）时，新实例接管锁。
+// 单行 PID 缺启动时间，readHolder 判定损坏 → 删除重建。
 func TestLock_StaleTakeover(t *testing.T) {
 	path := filepath.Join(makeTempDir(t, "autosync-lock-*"), "autosync.lock")
 	if err := os.WriteFile(path, []byte("999999\n"), 0644); err != nil {
@@ -120,7 +120,7 @@ func TestLock_PIDReuse_Takeover(t *testing.T) {
 func TestLock_CleanStale(t *testing.T) {
 	path := filepath.Join(makeTempDir(t, "autosync-lock-*"), "autosync.lock")
 
-	// 陈旧锁（死 PID）→ 清除
+	// 陈旧锁（缺启动时间，损坏）→ 清除
 	if err := os.WriteFile(path, []byte("999999\n"), 0644); err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,6 @@
 // lock.go 提供单实例锁，防止间隔内两个同步实例并发执行破坏仓库。
 // 锁文件用 O_CREATE|O_EXCL 创建并写入 PID + 进程启动时间：启动时间戳防 PID 复用误判——
 // 进程崩溃后 PID 被无关进程复用，仅查 PID 存活会误判"仍在持有"导致任务永久跳过。
-// 旧格式锁（单行 PID，升级遗留）无启动时间，退化为仅按 PID 存活判断。
 // 跨平台 pidAlive / processStartTime 见 pidalive_*.go。
 package lock
 
@@ -25,9 +24,8 @@ func New(path string) *Locker {
 
 // holder 锁文件记录的持有者信息。
 type holder struct {
-	pid      int
-	start    time.Time // 持有进程启动时间；旧格式锁无此字段时为零值
-	hasStart bool      // 是否含启动时间（旧格式锁为 false）
+	pid   int
+	start time.Time // 持有进程启动时间
 }
 
 // Acquire 尝试获取锁。
@@ -49,16 +47,9 @@ func (l *Locker) Acquire() (bool, func()) {
 	return false, nil // 并发竞争，放弃
 }
 
-// holderAlive 判断持有者是否仍存活且身份一致。
-// 旧格式锁（无启动时间）无法核对身份，退化为仅按 PID 存活判断。
+// holderAlive 判断持有者是否仍存活且身份一致（PID 存活且启动时间相符，防 PID 复用误判）。
 func (l *Locker) holderAlive(h holder) bool {
-	if !pidAlive(h.pid) {
-		return false
-	}
-	if h.hasStart {
-		return h.start.Equal(processStartTime(h.pid))
-	}
-	return true
+	return pidAlive(h.pid) && h.start.Equal(processStartTime(h.pid))
 }
 
 // tryCreate 用 O_EXCL 创建锁文件并写入当前 PID 与进程启动时间，成功返回 true。
@@ -72,25 +63,25 @@ func (l *Locker) tryCreate() bool {
 	return true
 }
 
-// readHolder 读取锁文件持有者信息；内容损坏时返回 (zero, false)。
+// readHolder 读取锁文件持有者信息；内容损坏（缺 PID 或启动时间）时返回 (zero, false)。
 func (l *Locker) readHolder() (holder, bool) {
 	data, err := os.ReadFile(l.path)
 	if err != nil {
 		return holder{}, false
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 2 {
+		return holder{}, false // 缺启动时间，视为损坏
+	}
 	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
 	if err != nil {
 		return holder{}, false
 	}
-	h := holder{pid: pid}
-	if len(lines) >= 2 {
-		if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(lines[1])); err == nil {
-			h.start = t
-			h.hasStart = true
-		}
+	start, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(lines[1]))
+	if err != nil {
+		return holder{}, false
 	}
-	return h, true
+	return holder{pid: pid, start: start}, true
 }
 
 // CleanStale 删除非存活持有的锁文件（供任务重命名清理旧锁）。

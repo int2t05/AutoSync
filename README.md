@@ -49,8 +49,7 @@ autosync install               # 注册 systemd user service 开机自启
 
 ```
 ~/.autosync/
-  autosync.conf.yaml   # 多任务配置（daemon/托盘共用，Linux 手编 / Win/macOS GUI 管理）
-  config.yaml          # CLI 单任务配置
+  autosync.conf.yaml   # 多任务配置（托盘 / daemon / CLI 共用，Linux 手编 / Win/macOS GUI 管理）
   logs/  state/  locks/
 ```
 

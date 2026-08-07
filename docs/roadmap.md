@@ -99,9 +99,7 @@ Windows 托盘 + macOS Swift 壳 + Linux systemd daemon，三冲突策略（含 
 | 通知分级图标（severity 透传 beeep） | 体验 |
 | DryRun 可选 fetch（预判远程领先） | 体验 |
 | 提交消息模板增强（文件数等变量） | 体验 |
-| gitop exec 超时 + 错误包装 | 架构债 |
 | 抽 sync.Orchestrator（去 runSync 重复编排） | 架构债 |
-| Reload 非阻塞（TaskScheduler 不卡 UI） | 架构债 |
 
 ### v1.4.0 · 实时（同步模式升级）
 
@@ -112,7 +110,6 @@ Windows 托盘 + macOS Swift 壳 + Linux systemd daemon，三冲突策略（含 
 | 实时文件监听（inotify / FSEvents / ReadDirectoryChanges） | 核心 |
 | daemon 运行时控制 IPC（SIGHUP Reload / Unix socket） | 平台补齐 |
 | backup 清理增强（按时间过期 + 跨设备协调） | 健壮性 |
-| RelationTo 破坏性回退处理 | 架构债 |
 
 ### v2.0.0 · 可信 + 生态（产品成熟）
 

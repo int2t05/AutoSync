@@ -349,3 +349,27 @@ func TestEngine_StdoutBlocked_Continues(t *testing.T) {
 		t.Fatal("stdout 写满时引擎应仍能退出（事件丢弃而非阻塞）")
 	}
 }
+
+// TestEngine_LargeConfigSave 验证 config-save 携带超 64KB 的单行配置 JSON 时不被 Scanner 上限截断，
+// 引擎仍回 config-saved 而非静默退出（此前 Scanner 默认 64KB 上限致主循环退出且无 bye）。
+func TestEngine_LargeConfigSave(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	stdin, stdout := startEngine(t, writeTrayConfig(t, nil))
+	defer stdin.Close()
+	readEvent(t, stdout) // ready
+
+	// 用超大 ignore 条目撑大 config-save 单行 JSON 超过 64KB
+	big := strings.Repeat("x", 80*1024)
+	dto := &engine.TaskDTO{
+		Name:   "big",
+		Config: config.Config{RepoDir: repo, RemoteURL: remote, Branch: "main", Interval: "1m", ConflictStrategy: "conflict_files", Ignore: []string{big}},
+	}
+	sendCmd(t, stdin, engine.Command{ID: 1, Cmd: "config-save", Tasks: []*engine.TaskDTO{dto}})
+	ev := readEventMatch(t, stdout, func(e engine.Event) bool { return e.ID == 1 })
+	if ev.Event != "config-saved" {
+		t.Fatalf("大配置应回 config-saved, got %+v", ev)
+	}
+}

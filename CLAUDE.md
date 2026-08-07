@@ -90,7 +90,7 @@ make package-linux    # Linux tarball（amd64+arm64，含 install.sh + 配置模
 | `test/` | **所有测试代码**（真实数据，禁止 mock）|
 | `macos/` | Swift MenuBarExtra 原生壳工程（macOS GUI，Xcode + xcodegen）|
 | `docs/` | prd / tech / flow / api / TODO / plan |
-| `config.example.yaml` | 配置模板 |
+| `autosync.conf.example.yaml` | 多任务配置模板 |
 | `Makefile` / `build.ps1` | 构建 / 测试脚本 |
 
 ## 6. 开发边界
@@ -130,13 +130,12 @@ make package-linux    # Linux tarball（amd64+arm64，含 install.sh + 配置模
 示例：
 
 ```go
-// config.go 负责同步配置的加载、默认值填充与校验。
-// 配置文件为 YAML，位于 ~/.autosync/，可通过 --config 覆盖路径。
+// config.go 负责同步配置的默认值填充与校验。
+// 配置字段与 autosync.conf.yaml 的 tasks 项一一对应，供 configstore 内嵌复用。
 package config
 
-// Load 从指定路径读取并解析配置，填充默认值后校验必填项与合法性。
-// path: 配置文件路径；返回校验通过的 Config，或带明确信息的 error。
-func Load(path string) (*Config, error) {
+// Normalize 填充默认值并校验必填项与合法性，填充派生字段（IntervalDur 等）。
+func (c *Config) Normalize() error {
 	// TODO: 支持 JSON 格式与远程配置
 	...
 }
@@ -145,8 +144,8 @@ func Load(path string) (*Config, error) {
 ## 8. 资源
 
 - **设计文档**：[docs/prd.md](docs/prd.md) · [docs/tech.md](docs/tech.md) · [docs/flow.md](docs/flow.md) · [docs/api.md](docs/api.md) · [docs/roadmap.md](docs/roadmap.md) · [docs/TODO.md](docs/TODO.md) · [docs/plan.md](docs/plan.md)
-- **配置模板**：`config.example.yaml`
+- **配置模板**：`autosync.conf.example.yaml`
 - **运行时**：Go 1.26+（`D:\DevelopTools\go\bin`）、系统 git、系统 git 凭证
 - **关键依赖**：`gopkg.in/yaml.v3`、`gen2brain/beeep`
 - **可选技能参考**：`superpowers:test-driven-development`、`superpowers:systematic-debugging`
-- **环境变量**：无（配置走 `config.yaml`；git 走系统凭证）
+- **环境变量**：无（配置走 `autosync.conf.yaml`；git 走系统凭证）

@@ -4,7 +4,6 @@
 package gitop
 
 import (
-	"fmt"
 	"time"
 
 	"autosync/internal/log"
@@ -23,7 +22,7 @@ func Retry(fn func() error, count int, baseDelay time.Duration, logger *log.Logg
 			return nil
 		}
 		if i < count-1 {
-			logger.Warn(fmt.Sprintf("第 %d 次失败，%v 后重试: %v", i+1, delay, err))
+			logger.Warnf("第 %d 次失败，%v 后重试: %v", i+1, delay, err)
 			time.Sleep(delay)
 			delay *= 2
 		}

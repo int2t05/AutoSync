@@ -1,9 +1,8 @@
-// config_test.go 验证配置加载、默认值填充与校验逻辑（真实临时文件，无 mock）。
+// config_test.go 验证配置默认值填充与校验逻辑（真实目录，无 mock）。
 package tests
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"autosync/internal/config"
@@ -20,25 +19,17 @@ func makeRepoDir(t *testing.T) string {
 	return d
 }
 
-// writeConfig 把 content 写入 dir 下的 config.yaml，返回其真实路径。
-func writeConfig(t *testing.T, dir, content string) string {
-	t.Helper()
-	p := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
-		t.Fatalf("写入配置失败: %v", err)
-	}
-	return p
+// mkConfig 构造最小合法配置（仅必填项，其余由 Normalize 补默认值）。
+func mkConfig(repoDir, remoteURL string) *config.Config {
+	return &config.Config{RepoDir: repoDir, RemoteURL: remoteURL}
 }
 
-// TestLoad_Valid_AppliesDefaults 验证最小合法配置加载成功且默认值正确填充。
-// repo_dir 用单引号包裹，避免 Windows 路径反斜杠被 YAML 双引号转义。
-func TestLoad_Valid_AppliesDefaults(t *testing.T) {
+// TestConfig_Normalize_AppliesDefaults 验证最小合法配置 Normalize 后默认值正确填充。
+func TestConfig_Normalize_AppliesDefaults(t *testing.T) {
 	repo := makeRepoDir(t)
-	p := writeConfig(t, repo, "repo_dir: '"+repo+"'\nremote_url: 'git@github.com:u/r.git'\n")
-
-	cfg, err := config.Load(p)
-	if err != nil {
-		t.Fatalf("加载失败: %v", err)
+	cfg := mkConfig(repo, "git@github.com:u/r.git")
+	if err := cfg.Normalize(); err != nil {
+		t.Fatalf("Normalize 失败: %v", err)
 	}
 	if cfg.Remote != "origin" {
 		t.Errorf("Remote 默认 = %q, 期望 origin", cfg.Remote)
@@ -66,55 +57,73 @@ func TestLoad_Valid_AppliesDefaults(t *testing.T) {
 	}
 }
 
-// TestLoad_MissingRepoDir 验证缺 repo_dir 报错。
-func TestLoad_MissingRepoDir(t *testing.T) {
-	d, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(d)
-	p := writeConfig(t, d, "remote_url: 'git@github.com:u/r.git'\n")
-	if _, err := config.Load(p); err == nil {
+// TestConfig_MissingRepoDir 验证缺 repo_dir 报错。
+func TestConfig_MissingRepoDir(t *testing.T) {
+	if err := mkConfig("", "git@github.com:u/r.git").Normalize(); err == nil {
 		t.Fatal("缺 repo_dir 应报错")
 	}
 }
 
-// TestLoad_MissingRemoteURL 验证缺 remote_url 报错。
-func TestLoad_MissingRemoteURL(t *testing.T) {
+// TestConfig_MissingRemoteURL 验证缺 remote_url 报错。
+func TestConfig_MissingRemoteURL(t *testing.T) {
 	repo := makeRepoDir(t)
-	p := writeConfig(t, repo, "repo_dir: '"+repo+"'\n")
-	if _, err := config.Load(p); err == nil {
+	if err := mkConfig(repo, "").Normalize(); err == nil {
 		t.Fatal("缺 remote_url 应报错")
 	}
 }
 
-// TestLoad_DirNotExist 验证 repo_dir 不存在报错。
-func TestLoad_DirNotExist(t *testing.T) {
-	d, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(d)
-	p := writeConfig(t, d, "repo_dir: '/no/such/dir/xyz'\nremote_url: 'git@github.com:u/r.git'\n")
-	if _, err := config.Load(p); err == nil {
+// TestConfig_DirNotExist 验证 repo_dir 不存在报错。
+func TestConfig_DirNotExist(t *testing.T) {
+	if err := mkConfig("/no/such/dir/xyz", "git@github.com:u/r.git").Normalize(); err == nil {
 		t.Fatal("repo_dir 不存在应报错")
 	}
 }
 
-// TestLoad_InvalidStrategy 验证非法冲突策略报错。
-func TestLoad_InvalidStrategy(t *testing.T) {
+// TestConfig_InvalidStrategy 验证非法冲突策略报错。
+func TestConfig_InvalidStrategy(t *testing.T) {
 	repo := makeRepoDir(t)
-	p := writeConfig(t, repo, "repo_dir: '"+repo+"'\nremote_url: 'git@github.com:u/r.git'\nconflict_strategy: 'bogus'\n")
-	if _, err := config.Load(p); err == nil {
+	cfg := mkConfig(repo, "git@github.com:u/r.git")
+	cfg.ConflictStrategy = "bogus"
+	if err := cfg.Normalize(); err == nil {
 		t.Fatal("非法策略应报错")
 	}
 }
 
-// TestLoad_BadInterval 验证 interval 无法解析报错。
-func TestLoad_BadInterval(t *testing.T) {
+// TestConfig_BadInterval 验证 interval 无法解析报错。
+func TestConfig_BadInterval(t *testing.T) {
 	repo := makeRepoDir(t)
-	p := writeConfig(t, repo, "repo_dir: '"+repo+"'\nremote_url: 'git@github.com:u/r.git'\ninterval: 'notaduration'\n")
-	if _, err := config.Load(p); err == nil {
+	cfg := mkConfig(repo, "git@github.com:u/r.git")
+	cfg.Interval = "notaduration"
+	if err := cfg.Normalize(); err == nil {
 		t.Fatal("非法 interval 应报错")
+	}
+}
+
+// TestConfig_IntervalFloor 验证 interval 小于 1 分钟报错（防毫秒级忙轮询）。
+func TestConfig_IntervalFloor(t *testing.T) {
+	repo := makeRepoDir(t)
+	for _, iv := range []string{"50ms", "500ms", "59s"} {
+		cfg := mkConfig(repo, "git@github.com:u/r.git")
+		cfg.Interval = iv
+		if err := cfg.Normalize(); err == nil {
+			t.Errorf("interval=%s 应因低于 1 分钟报错", iv)
+		}
+	}
+	// 恰好 1m 通过
+	cfg := mkConfig(repo, "git@github.com:u/r.git")
+	cfg.Interval = "1m"
+	if err := cfg.Normalize(); err != nil {
+		t.Errorf("interval=1m 应通过: %v", err)
+	}
+}
+
+// TestConfig_NormalizeLenient_SkipsRepoDir 验证 NormalizeLenient 跳过 repo_dir 存在性校验。
+func TestConfig_NormalizeLenient_SkipsRepoDir(t *testing.T) {
+	cfg := mkConfig("/no/such/dir/xyz", "git@github.com:u/r.git")
+	if err := cfg.NormalizeLenient(); err != nil {
+		t.Fatalf("NormalizeLenient 应跳过 repo_dir 存在性: %v", err)
+	}
+	if cfg.Interval != "1m" {
+		t.Errorf("Interval 默认未填充: %q", cfg.Interval)
 	}
 }

@@ -13,7 +13,8 @@ import (
 )
 
 // pidAlive 判断进程是否存活（Windows：tasklist 查询，3s 超时防探测命令自身卡死）。
-// 查询失败时保守视为存活，避免误接管导致并发破坏（PID 复用已由启动时间戳兜底）。
+// 超时视为存活（保守，避免误接管导致并发破坏）；tasklist 本身不可用（命令缺失等）视为死亡，
+// 允许接管——否则持有者恒被误判存活导致任务永久跳过（PID 复用已由启动时间戳兜底）。
 func pidAlive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -22,7 +23,7 @@ func pidAlive(pid int) bool {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "tasklist", "/FI", "PID eq "+strconv.Itoa(pid), "/NH", "/FO", "CSV").CombinedOutput()
 	if err != nil {
-		return true
+		return ctx.Err() == nil // 命令失败非超时：tasklist 不可用，视为死亡允许接管
 	}
 	// 存活时 tasklist 输出 CSV 行（以 " 开头）；不存在时输出 INFO 信息
 	return strings.HasPrefix(strings.TrimSpace(string(out)), "\"")

@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"autosync/internal/autostart"
 	"autosync/internal/config"
 	"autosync/internal/configstore"
-	"autosync/internal/gitignore"
 	"autosync/internal/gitop"
 	"autosync/internal/lock"
 	"autosync/internal/log"
@@ -62,47 +60,36 @@ func parseCommand(args []string) (cmd string, rest []string) {
 	return "", args
 }
 
-// runSync 执行单次同步：加载配置 → 日志 → .gitignore → 加锁 → 同步 → 持久化状态 → 通知。
-// --dry-run 时只输出同步计划，不联网、不写盘、不加锁。
+// runSync 执行单次同步：载入多任务配置 → 解析目标任务 → 复用 TaskRunner 编排（任务锁/.gitignore/Syncer/状态/通知）。
+// 支持 `sync [task]`：指定任务名，或仅配置一个任务时省略；--dry-run 只读预览，不联网、不写盘、不加锁。
 func runSync(rest []string) int {
 	fs := flag.NewFlagSet("autosync", flag.ContinueOnError)
-	configPath := fs.String("config", "", "配置文件路径（默认 ~/.autosync/config.yaml）")
+	configPath := fs.String("config", "", "多任务配置文件路径（默认 ~/.autosync/autosync.conf.yaml）")
 	dryRun := fs.Bool("dry-run", false, "只读预览同步计划，不实际执行")
 	if err := fs.Parse(rest); err != nil {
 		return 1
 	}
+	taskName := fs.Arg(0)
 
-	cfg, err := config.Load(resolveConfigPath(*configPath))
+	store, logger, cleanup, err := setupTrayEnv(*configPath, "sync")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
 		return 1
 	}
+	defer cleanup()
 
-	if err := config.EnsureUserDataDirs(); err != nil {
+	task, err := resolveTask(store, taskName)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		return 1
 	}
 
-	logger, err := log.New(config.LogFilePath(), cfg.ShowConsole)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 日志初始化失败: %v\n", err)
-		return 1
-	}
-	defer logger.Close()
-
-	logger.Info(fmt.Sprintf("AutoSync 启动 | 目录=%s | 远程=%s | 分支=%s | 策略=%s | 间隔=%s",
-		cfg.RepoDir, cfg.RemoteURL, cfg.Branch, cfg.ConflictStrategy, cfg.Interval))
-
-	// 构造 git 操作器：execGit + 重试装饰器（网络操作指数退避）
-	gitOp := gitop.NewRetryGit(
-		gitop.NewExecGit(cfg.RepoDir, logger, cfg.GitTimeoutDur),
-		cfg.RetryCount, cfg.RetryBaseDelayDur, logger,
-	)
-	syncer := sync.NewSyncer(cfg, gitOp, logger)
-
-	// --dry-run：只读分析，不写盘不加锁
+	// --dry-run：只读分析，不联网、不写盘、不加锁
 	if *dryRun {
-		plan := syncer.DryRun()
+		gitOp := gitop.NewRetryGit(
+			gitop.NewExecGit(task.RepoDir, logger, task.GitTimeoutDur),
+			task.RetryCount, task.RetryBaseDelayDur, logger,
+		)
+		plan := sync.NewSyncer(&task.Config, gitOp, logger).DryRun()
 		fmt.Println("AutoSync 同步计划（dry-run，不实际执行）")
 		fmt.Println("────────────────────────────────")
 		for i, step := range plan.Steps {
@@ -112,51 +99,36 @@ func runSync(rest []string) int {
 		return 0
 	}
 
-	// 维护 .gitignore：仅追加缺失条目
-	gitignorePath := filepath.Join(cfg.RepoDir, ".gitignore")
-	if added, err := gitignore.Ensure(gitignorePath, cfg.Ignore); err != nil {
-		logger.Warn(fmt.Sprintf("维护 .gitignore 失败: %v", err))
-	} else if added > 0 {
-		logger.Info(fmt.Sprintf("已向 .gitignore 追加 %d 条", added))
-	}
-
-	// 单实例锁：防止间隔内并发执行破坏仓库；被存活实例持有时静默跳过
-	locker := lock.New(config.LockFilePath("default"))
-	acquired, release := locker.Acquire()
-	if !acquired {
-		logger.Info("已有同步实例在运行，跳过本次")
-		return 0
-	}
-	defer release()
-
-	result := syncer.Run()
-
-	// 持久化状态（供 status 命令读取）
-	stateStore := state.New(config.StateFilePath("default"))
-	if err := stateStore.Save(state.State{
-		LastSyncAt:   time.Now(),
-		LastOutcome:  result.Outcome.String(),
-		LastMessage:  result.Message,
-		BackupBranch: result.BackupBranch,
-	}); err != nil {
-		logger.Warn(fmt.Sprintf("写入状态文件失败: %v", err))
-	}
-
-	// 通知策略：成功静默，冲突/失败/初始化才通知
-	decision := notify.PolicyFor(result)
-	if decision.Notify {
-		if err := notify.NewBeeepNotifier().Notify(decision.Title, decision.Body, decision.Severity); err != nil {
-			logger.Warn(fmt.Sprintf("发送通知失败: %v", err))
-		}
-	}
-
-	// 退出码：失败 → 1，其余 → 0
+	// 复用 TaskRunner 编排：任务级锁 → .gitignore 维护 → Syncer → 状态 → 通知
+	result := tasksched.NewTaskRunner(task, logger, notify.NewBeeepNotifier()).Run()
 	if result.Outcome == sync.OutcomeFailed {
-		logger.Error(fmt.Sprintf("同步失败: %s", result.Message))
+		fmt.Fprintf(os.Stderr, "❌ 同步失败: %s\n", result.Message)
+		logger.Errorf("同步失败: %s", result.Message)
 		return 1
 	}
-	logger.Info(fmt.Sprintf("同步完成: %s — %s", result.Outcome, result.Message))
+	fmt.Printf("同步完成: %s — %s\n", result.Outcome, result.Message)
 	return 0
+}
+
+// resolveTask 按名或唯一任务解析目标任务。
+// name 为空时要求配置中恰好一个任务；任务缺失或多任务未指名时返回带说明的 error。
+func resolveTask(store *configstore.Store, name string) (*configstore.Task, error) {
+	if name != "" {
+		t := store.Get(name)
+		if t == nil {
+			return nil, fmt.Errorf("任务不存在: %q", name)
+		}
+		return t, nil
+	}
+	tasks := store.List()
+	switch len(tasks) {
+	case 0:
+		return nil, fmt.Errorf("未配置任务，请先编辑 %s", config.TrayConfigPath())
+	case 1:
+		return tasks[0], nil
+	default:
+		return nil, fmt.Errorf("配置了多个任务，请指定任务名（autosync sync <任务名>）")
+	}
 }
 
 // setupTrayEnv 装配托盘/engine 共享的运行时环境：~/.autosync/ + 日志 + 多任务配置。
@@ -173,12 +145,12 @@ func setupTrayEnv(configPath, mode string) (*configstore.Store, *log.Logger, fun
 	}
 	store, err := configstore.Load(resolveTrayConfigPath(configPath))
 	if err != nil {
-		logger.Error(fmt.Sprintf("配置加载失败: %v", err))
+		logger.Errorf("配置加载失败: %v", err)
 		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
 		logger.Close()
 		return nil, nil, nil, err
 	}
-	logger.Info(fmt.Sprintf("AutoSync %s 启动 | 任务数=%d", mode, len(store.List())))
+	logger.Infof("AutoSync %s 启动 | 任务数=%d", mode, len(store.List()))
 	return store, logger, func() { logger.Close() }, nil
 }
 
@@ -211,7 +183,7 @@ func runTray(rest []string) int {
 
 	sched := tasksched.NewTaskScheduler(store.List(), logger, notify.NewBeeepNotifier(), nil)
 	if err := tray.NewTrayApp(sched, store, logger).Run(!*background); err != nil {
-		logger.Error(fmt.Sprintf("托盘退出: %v", err))
+		logger.Errorf("托盘退出: %v", err)
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		return 1
 	}
@@ -269,49 +241,50 @@ func runUninstall() int {
 	return 0
 }
 
-// runStatus 读取并展示上次同步状态。用宽松加载，允许 repo_dir 暂时不可用。
+// runStatus 读取并展示任务同步状态。用宽松加载，允许 repo_dir 暂时不可用。
+// 支持 `status [task]`：指定任务名或展示全部任务。
 func runStatus(rest []string) int {
 	fs := flag.NewFlagSet("autosync status", flag.ContinueOnError)
-	configPath := fs.String("config", "", "配置文件路径")
+	configPath := fs.String("config", "", "多任务配置文件路径（默认 ~/.autosync/autosync.conf.yaml）")
 	if err := fs.Parse(rest); err != nil {
 		return 1
 	}
+	taskName := fs.Arg(0)
 
-	cfg, err := config.LoadLenient(resolveConfigPath(*configPath))
+	store, err := configstore.LoadLenient(resolveTrayConfigPath(*configPath))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ 配置加载失败: %v\n", err)
 		return 1
 	}
-
-	st, err := state.New(config.StateFilePath("default")).Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 读取状态失败: %v\n", err)
-		return 1
+	tasks := store.List()
+	if taskName != "" {
+		t := store.Get(taskName)
+		if t == nil {
+			fmt.Fprintf(os.Stderr, "❌ 任务不存在: %q\n", taskName)
+			return 1
+		}
+		tasks = []*configstore.Task{t}
 	}
 
 	fmt.Println("AutoSync 状态")
 	fmt.Println("────────────────────────────────")
-	fmt.Printf("仓库目录: %s\n", cfg.RepoDir)
-	fmt.Printf("远程:     %s (%s)\n", cfg.RemoteURL, cfg.Branch)
-	fmt.Printf("策略:     %s | 间隔: %s\n", cfg.ConflictStrategy, cfg.Interval)
-	fmt.Println("────────────────────────────────")
-	if st.LastSyncAt.IsZero() {
-		fmt.Println("尚未同步过")
-		return 0
-	}
-	fmt.Printf("上次同步: %s\n", st.LastSyncAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("结果:     %s\n", st.LastOutcome)
-	fmt.Printf("摘要:     %s\n", st.LastMessage)
-	if st.BackupBranch != "" {
-		fmt.Printf("备份分支: %s\n", st.BackupBranch)
+	for _, t := range tasks {
+		fmt.Printf("任务:     %s\n", t.Name)
+		fmt.Printf("仓库目录: %s\n", t.RepoDir)
+		fmt.Printf("远程:     %s (%s)\n", t.RemoteURL, t.Branch)
+		fmt.Printf("策略:     %s | 间隔: %s\n", t.ConflictStrategy, t.Interval)
+		st, err := state.New(t.ResolveStateFile()).Load()
+		if err != nil || st.LastSyncAt.IsZero() {
+			fmt.Println("上次同步: 尚未同步过")
+		} else {
+			fmt.Printf("上次同步: %s\n", st.LastSyncAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("结果:     %s\n", st.LastOutcome)
+			fmt.Printf("摘要:     %s\n", st.LastMessage)
+			if st.BackupBranch != "" {
+				fmt.Printf("备份分支: %s\n", st.BackupBranch)
+			}
+		}
+		fmt.Println("────────────────────────────────")
 	}
 	return 0
-}
-
-// resolveConfigPath 解析 CLI 配置路径：--config 优先，否则用 ~/.autosync/config.yaml。
-func resolveConfigPath(explicit string) string {
-	if explicit != "" {
-		return explicit
-	}
-	return config.CLIConfigPath()
 }

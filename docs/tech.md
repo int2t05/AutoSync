@@ -10,7 +10,7 @@ flowchart TB
     MAIN[main<br/>CLI 分发 + 依赖装配]
   end
   subgraph internal[internal]
-    CFG[config<br/>配置加载校验]
+    CFG[config<br/>配置默认值与校验]
     LOG[log<br/>分级日志]
     GI[gitignore<br/>追加式维护]
     GOP[gitop<br/>GitOperator + 重试装饰器]
@@ -62,7 +62,7 @@ flowchart LR
 
 - **`--force-with-lease`**：local_wins 强推用 lease 而非裸 `--force`，fetch 与 push 间远程被改写则拒绝。
 - **单实例锁**：`O_EXCL` 创建锁文件写 PID + 进程启动时间；持有者存活且身份一致（启动时间相符）才跳过，已死 / 损坏 / PID 复用则接管。`pidAlive` 跨平台（Unix `kill -0` / Windows `tasklist` 带超时），`processStartTime` 读创建时间（Windows `GetProcessTimes` / Linux `/proc/<pid>/stat` / darwin `sysctl`）。
-- **git 命令统一超时**：全部 git 命令带超时（默认 `git_timeout=60s`），防网络挂起冻结调度/退出。超时双保险——`CommandContext` 杀直接进程 + 定时强制关闭管道读端（Windows 管道不支持 deadline，孙子进程如 hook/ssh 继承写端时仅杀直接进程仍会阻塞读）。
+- **git 命令统一超时**：全部 git 命令带超时（默认 `git_timeout=60s`），防网络挂起冻结调度/退出。超时双保险——`CommandContext` 杀直接进程 + 输出重定向到临时文件而非管道（hook/ssh 等孙子进程继承的是文件句柄而非管道写端，文件不阻塞 `cmd.Wait`，规避 Windows 管道继承挂起）。
 - **配置↔仓库一致性**：同步前核对 `git remote get-url` 与配置 `remote_url`（`NormalizeRemoteURL` 归一化比较）、当前分支与配置 `branch`，不一致显式 Failed——改配置不再静默失效，也拒绝在无关远程/分支上做写操作。
 - **热重载异步**：`TaskScheduler.Reload` 后台重建（Stop 有界），UI/IPC 线程不冻结；退出等待进行中同步有界。
 - **config-save 落盘回滚**：engine 与托盘同构——先快照旧任务列表，`ReplaceAll` 校验替换后 `Save` 落盘，失败即回滚内存态且调度器不 Reload，壳 / 窗口保持原配置。
@@ -76,7 +76,7 @@ flowchart LR
 ```
 cmd/autosync/         入口：CLI 分发与依赖装配
 cmd/genicon          图标生成：SVG→PNG（oksvg 光栅化，仅改图标时运行）
-internal/config      配置加载 / 默认值 / 校验 + byproduct 路径解析（~/.autosync）
+internal/config      默认值 / 校验 + byproduct 路径解析（~/.autosync）
 internal/log         分级日志（文件 + 控制台，并发安全）
 internal/gitignore    .gitignore 追加式维护
 internal/gitop        GitOperator 接口 + exec 实现 + 重试装饰器
@@ -84,7 +84,7 @@ internal/sync         同步状态机 / 冲突处理 / dry-run / backup 清理
 internal/notify       通知策略 + beeep 实现
 internal/state        上次同步状态持久化
 internal/lock         单实例锁（PID，跨平台）
-internal/configstore  多任务配置 Store（autosync.conf.yaml，CRUD + 持久化）
+internal/configstore  多任务配置 Store（autosync.conf.yaml，CRUD + 持久化 + 宽松加载）
 internal/tasksched    任务调度：每任务 ticker + TaskRunner 复用 Syncer
 internal/tray         托盘守护应用（Fyne，构建标签 traygui 隔离）
 internal/autostart    开机自启（Windows 注册表 Run 键 / macOS stub 由壳管 / Linux systemd user service）
@@ -100,8 +100,7 @@ macos/                Swift MenuBarExtra 原生壳工程（macOS GUI）
 
 ```
 ~/.autosync/
-  config.yaml                 # CLI 单任务配置
-  autosync.conf.yaml          # 托盘多任务配置
+  autosync.conf.yaml          # 多任务配置（托盘 / daemon / CLI 共用）
   logs/autosync.log           # 日志（CLI + 守护共享）
   state/autosync.state-<name>.json   # 每任务状态
   locks/autosync.lock-<name>         # 每任务锁 / 守护锁 autosync.daemon.lock

@@ -48,7 +48,7 @@ func (r *TaskRunner) SetPaused(p bool) {
 	r.paused = p
 	r.pauseMu.Unlock()
 	if err := state.New(r.task.ResolveStateFile()).Update(func(st *state.State) { st.Paused = p }); err != nil {
-		r.logger.Warn(fmt.Sprintf("任务 %s 持久化暂停状态失败: %v", r.task.Name, err))
+		r.logger.Warnf("任务 %s 持久化暂停状态失败: %v", r.task.Name, err)
 	}
 }
 
@@ -68,14 +68,14 @@ func (r *TaskRunner) Run() sync.SyncResult {
 	// 任务级锁：跨进程防止同任务并发（如手动 CLI 与守护进程同时触发）
 	acquired, release := lock.New(r.task.ResolveLockFile()).Acquire()
 	if !acquired {
-		r.logger.Info(fmt.Sprintf("任务 %s 已有实例在运行，跳过", r.task.Name))
+		r.logger.Infof("任务 %s 已有实例在运行，跳过", r.task.Name)
 		return sync.SyncResult{Outcome: sync.OutcomeNoChanges, Message: "已有实例在运行，跳过"}
 	}
 	defer release()
 
 	// .gitignore 维护：仅追加缺失条目
 	if _, err := gitignore.Ensure(filepath.Join(r.task.RepoDir, ".gitignore"), r.task.Ignore); err != nil {
-		r.logger.Warn(fmt.Sprintf("任务 %s 维护 .gitignore 失败: %v", r.task.Name, err))
+		r.logger.Warnf("任务 %s 维护 .gitignore 失败: %v", r.task.Name, err)
 	}
 
 	// 构造 git 操作器（execGit + 重试装饰器）并执行同步状态机
@@ -92,14 +92,14 @@ func (r *TaskRunner) Run() sync.SyncResult {
 		st.LastMessage = result.Message
 		st.BackupBranch = result.BackupBranch
 	}); err != nil {
-		r.logger.Warn(fmt.Sprintf("任务 %s 写状态文件失败: %v", r.task.Name, err))
+		r.logger.Warnf("任务 %s 写状态文件失败: %v", r.task.Name, err)
 	}
 
 	// 通知策略：成功静默，异常才通知（notifier 由调用方注入：beeep 或 IPC 委托壳）
 	decision := notify.PolicyFor(result)
 	if decision.Notify {
 		if err := r.notifier.Notify(decision.Title, decision.Body, decision.Severity); err != nil {
-			r.logger.Warn(fmt.Sprintf("任务 %s 发送通知失败: %v", r.task.Name, err))
+			r.logger.Warnf("任务 %s 发送通知失败: %v", r.task.Name, err)
 		}
 	}
 	return result

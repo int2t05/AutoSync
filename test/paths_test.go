@@ -48,9 +48,6 @@ func TestStateLockFilePath(t *testing.T) {
 	if g := config.DaemonLockPath(); !strings.HasSuffix(g, filepath.Join("locks", "autosync.daemon.lock")) {
 		t.Errorf("DaemonLockPath=%q", g)
 	}
-	if g := config.CLIConfigPath(); !strings.HasSuffix(g, "config.yaml") {
-		t.Errorf("CLIConfigPath=%q", g)
-	}
 	if g := config.TrayConfigPath(); !strings.HasSuffix(g, "autosync.conf.yaml") {
 		t.Errorf("TrayConfigPath=%q", g)
 	}

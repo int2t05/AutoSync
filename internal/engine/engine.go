@@ -7,7 +7,6 @@ package engine
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"io"
 	"sync/atomic"
 	"time"
@@ -60,6 +59,8 @@ func (e *Engine) Run() int {
 	e.sched.Start()
 
 	sc := bufio.NewScanner(e.r)
+	// 放宽单行上限（默认 64KB）：config-save 可能携带大型任务配置 JSON，超限会静默退出且无 bye
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
 		var cmd Command
 		if err := json.Unmarshal(sc.Bytes(), &cmd); err != nil {
@@ -224,7 +225,7 @@ func (e *Engine) writeEvent(ev Event) {
 	case e.evCh <- data:
 	default:
 		if n := e.dropN.Add(1); n == 1 || n%1000 == 0 {
-			e.logger.Warn(fmt.Sprintf("IPC 事件队列满，丢弃事件（壳未读 stdout？累计 %d 条）", n))
+			e.logger.Warnf("IPC 事件队列满，丢弃事件（壳未读 stdout？累计 %d 条）", n)
 		}
 	}
 }

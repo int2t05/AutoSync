@@ -92,10 +92,10 @@ func (g *execGit) run(args ...string) (string, error) {
 	out, err := g.exec(args...)
 	s := strings.TrimSpace(out)
 	if err != nil {
-		g.logger.Error(fmt.Sprintf("git %s 失败: %v | %s", strings.Join(args, " "), err, truncate(s, 200)))
+		g.logger.Errorf("git %s 失败: %v | %s", strings.Join(args, " "), err, truncate(s, 200))
 		return s, err
 	}
-	g.logger.Info(fmt.Sprintf("git %s → %s", strings.Join(args, " "), truncate(s, 100)))
+	g.logger.Infof("git %s → %s", strings.Join(args, " "), truncate(s, 100))
 	return s, nil
 }
 

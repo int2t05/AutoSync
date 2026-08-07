@@ -13,17 +13,17 @@ flowchart LR
 
 | 里程碑 | 范围 | 映射 US |
 |--------|------|---------|
-| M1 | ConfigStore 多任务配置 + 向后兼容 + 每任务 state/lock | US-12 |
+| M1 | ConfigStore 多任务配置 + 每任务 state/lock | US-12 |
 | M2 | Fyne 托盘守护骨架 + TaskScheduler + TaskRunner 复用 Syncer + 单实例锁 | US-11, US-13 |
 | M3 | 配置窗口任务 CRUD + 托盘菜单（手动/暂停/状态/自启/退出） | US-12, US-14 |
 | M4 | 注册表自启 + install/uninstall 新语义 + CLI 共存 + 测试冒烟 | US-15 |
 
 ## M1 · 多任务配置基座
 
-**范围**：`internal/configstore` 多任务配置加载/校验/持久化；每任务独立 state 与 lock；旧单配置向后兼容。
+**范围**：`internal/configstore` 多任务配置加载/校验/持久化；每任务独立 state 与 lock。
 
 **新增包**
-- `internal/configstore`：`Task`（name + V1.0 Config 字段）、`Store`（加载 `autosync.conf.yaml` 的 `tasks: []`，CRUD，持久化）。无 `tasks` 键的单配置视为单任务。
+- `internal/configstore`：`Task`（name + V1.0 Config 字段）、`Store`（加载 `autosync.conf.yaml` 的 `tasks: []`，CRUD，持久化）。文件缺失或无 `tasks` 键视为空存储（托盘空配置启动，窗口新增任务后 Save 落盘）。
 
 **改动**
 - `internal/state`：按任务名解析状态文件（`autosync.state-<name>.json`）。
@@ -31,7 +31,6 @@ flowchart LR
 
 **验收**
 - [ ] 多任务配置加载/校验/保存（单测，真实文件）
-- [ ] 旧单配置（无 `tasks`）向后兼容为单任务（单测）
 - [ ] 每任务 state/lock 互不干扰（单测）
 - [ ] `go build` / `vet` / `test` 全绿
 
@@ -90,7 +89,7 @@ flowchart LR
 - **byproduct 路径**：配置/日志/状态/锁统一到 `~/.autosync/`（`logs/`/`state/`/`locks/` 子目录），exe 位置独立。路径解析集中到 `internal/config/paths.go`（`UserDataDir`/`LogFilePath`/`StateFilePath`/`LockFilePath`）。可用 `AUTOSYNC_DATA_DIR` 覆盖。
 - **自有图标**：`internal/assets`（icon.svg → icon.png）嵌入供托盘/窗口；`cmd/genicon` 光栅化；`cmd/autosync/winres` + go-winres 生成 .syso 供 exe 图标。
 - **审计修复**：tasksched `runners` 数据竞争（`Runners` 返回副本、`RunNow`/`SetPaused` 锁内查找）、`runTray` 先初始化日志再加载配置（静默版可诊断）、`TaskRunner.Run` 错误日志对齐、`autostart.Disable` 容错已不存在值、`configstore.Save` 原子写、托盘 `selected` 重置。
-- **延后**（记入 [TODO.md](TODO.md)）：抽 `sync.Orchestrator`、gitop 超时、Reload 非阻塞、RelationTo 破坏性回退等。
+- **延后**（记入 [TODO.md](TODO.md)）：抽 `sync.Orchestrator` 等。
 
 ## 约定
 

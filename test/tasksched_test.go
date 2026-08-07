@@ -17,13 +17,27 @@ import (
 	"autosync/internal/tasksched"
 )
 
-// schedTask 构造已 Normalize 的调度任务。
+// schedTask 构造调度测试任务。跳过 Normalize 的 interval ≥1m 校验（调度测试需亚分钟触发），
+// 手动填充默认值与派生时长；字段语义与 config 校验一致。
 func schedTask(t *testing.T, name, repoDir, remoteURL, interval string) *configstore.Task {
 	t.Helper()
 	task := &configstore.Task{Name: name, Config: config.Config{RepoDir: repoDir, RemoteURL: remoteURL, Interval: interval}}
-	if err := task.Normalize(); err != nil {
-		t.Fatalf("Normalize 任务 %s: %v", name, err)
+	task.Remote = "origin"
+	task.Branch = "main"
+	task.ConflictStrategy = "conflict_files"
+	task.BackupKeep = 10
+	task.RetryCount = 3
+	task.RetryBaseDelay = "1s"
+	task.CommitMsgFormat = "auto sync: {{.Timestamp}}"
+	task.GitTimeout = "60s"
+	task.Ignore = []string{"*.tmp", "Thumbs.db", "desktop.ini", ".DS_Store"}
+	dur, err := time.ParseDuration(interval)
+	if err != nil {
+		t.Fatalf("interval 解析 %s: %v", interval, err)
 	}
+	task.IntervalDur = dur
+	task.GitTimeoutDur = 60 * time.Second
+	task.RetryBaseDelayDur = time.Second
 	return task
 }
 
@@ -260,11 +274,8 @@ func TestScheduler_StopBounded(t *testing.T) {
 	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\nsleep 30\n")
 
 	task := schedTask(t, "bounded", repo, remote, "50ms")
-	task.GitTimeout = "1s"
-	task.RetryCount = 1 // 单次尝试，避免重试放大等待
-	if err := task.Normalize(); err != nil {
-		t.Fatalf("Normalize: %v", err)
-	}
+	task.GitTimeoutDur = time.Second // 单条 git 命令 1s 超时，Stop 有界
+	task.RetryCount = 1              // 单次尝试，避免重试放大等待
 	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Start()
 
@@ -290,11 +301,8 @@ func TestScheduler_ReloadNonBlocking(t *testing.T) {
 	}
 	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\nsleep 30\n")
 	task := schedTask(t, "reloadnb", repo, remote, "50ms")
-	task.GitTimeout = "1s"
+	task.GitTimeoutDur = time.Second
 	task.RetryCount = 1
-	if err := task.Normalize(); err != nil {
-		t.Fatal(err)
-	}
 
 	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Start()

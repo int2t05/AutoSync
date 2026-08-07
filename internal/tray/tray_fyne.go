@@ -90,16 +90,16 @@ func (a *TrayApp) buildMenu() *fyne.Menu {
 	autoItem := fyne.NewMenuItem(autoLabel, func() {
 		exe, err := os.Executable()
 		if err != nil {
-			a.logger.Warn(fmt.Sprintf("获取可执行文件路径失败: %v", err))
+			a.logger.Warnf("获取可执行文件路径失败: %v", err)
 			return
 		}
 		if autostart.IsEnabled() {
 			if err := autostart.Disable(); err != nil {
-				a.logger.Warn(fmt.Sprintf("关闭开机自启失败: %v", err))
+				a.logger.Warnf("关闭开机自启失败: %v", err)
 			}
 		} else {
-			if err := autostart.Enable(exe, ""); err != nil {
-				a.logger.Warn(fmt.Sprintf("设置开机自启失败: %v", err))
+			if err := autostart.Enable(exe, a.store.Path()); err != nil {
+				a.logger.Warnf("设置开机自启失败: %v", err)
 			}
 		}
 		a.refreshMenu()
@@ -120,10 +120,10 @@ func (a *TrayApp) runTask(name string) {
 		defer a.wg.Done()
 		result, err := a.sched.RunNow(name)
 		if err != nil {
-			a.logger.Warn(fmt.Sprintf("手动同步 %s 失败: %v", name, err))
+			a.logger.Warnf("手动同步 %s 失败: %v", name, err)
 			return
 		}
-		a.logger.Info(fmt.Sprintf("手动同步 %s: %s — %s", name, result.Outcome, result.Message))
+		a.logger.Infof("手动同步 %s: %s — %s", name, result.Outcome, result.Message)
 	}()
 }
 

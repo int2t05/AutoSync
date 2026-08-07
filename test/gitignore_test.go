@@ -86,3 +86,22 @@ func TestEnsure_NoDuplicate(t *testing.T) {
 		t.Errorf("*.tmp 出现 %d 次, 期望 1", c)
 	}
 }
+
+// TestEnsure_NoTempResidue 验证 Ensure 不产生临时文件残留（避免污染同步仓库目录）。
+func TestEnsure_NoTempResidue(t *testing.T) {
+	d, err := os.MkdirTemp("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(d)
+	p := filepath.Join(d, ".gitignore")
+	if _, err := gitignore.Ensure(p, []string{"*.tmp", "desktop.ini"}); err != nil {
+		t.Fatalf("Ensure 失败: %v", err)
+	}
+	entries, _ := os.ReadDir(d)
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "tmp") {
+			t.Errorf("Ensure 不应在仓库目录产生临时文件: %s", e.Name())
+		}
+	}
+}

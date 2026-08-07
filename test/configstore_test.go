@@ -334,3 +334,34 @@ func TestConfigStore_SafeNameCollision(t *testing.T) {
 		t.Errorf("ReplaceAll safeName 冲突应失败")
 	}
 }
+
+// TestConfigStore_LoadLenient 验证 LoadLenient 跳过 repo_dir 存在性校验（status 场景）。
+func TestConfigStore_LoadLenient(t *testing.T) {
+	missing := filepath.Join(makeTempDir(t, "autosync-repo-*"), "missing")
+	content := "tasks:\n  - name: 'gone'\n    repo_dir: '" + missing + "'\n    remote_url: 'u'\n"
+
+	// 严格 Load 应因 repo_dir 不存在失败
+	if _, err := configstore.Load(writeConfigFile(t, content)); err == nil {
+		t.Errorf("Load 对缺失 repo_dir 应失败")
+	}
+	// 宽松 Load 应通过且默认值填充
+	store, err := configstore.LoadLenient(writeConfigFile(t, content))
+	if err != nil {
+		t.Fatalf("LoadLenient 应跳过 repo_dir 存在性: %v", err)
+	}
+	if len(store.List()) != 1 || store.List()[0].Name != "gone" {
+		t.Errorf("LoadLenient 任务不符: %+v", store.List())
+	}
+	if store.List()[0].Interval != "1m" {
+		t.Errorf("LoadLenient 未填充默认 interval: %q", store.List()[0].Interval)
+	}
+}
+
+// TestConfigStore_UnknownField 验证 YAML 未知字段报错（KnownFields），拼错字段名不再静默忽略。
+func TestConfigStore_UnknownField(t *testing.T) {
+	d := makeTempDir(t, "autosync-repo-*")
+	content := "tasks:\n  - name: 't1'\n    repo_dir: '" + d + "'\n    remote_url: 'u'\n    confilct_strategy: 'local_wins'\n"
+	if _, err := configstore.Load(writeConfigFile(t, content)); err == nil {
+		t.Errorf("未知字段应报错")
+	}
+}

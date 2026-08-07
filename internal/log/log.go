@@ -59,6 +59,15 @@ func (l *Logger) Warn(msg string) { l.log(levelWarn, msg) }
 // Error 记录错误级日志（同步失败、需关注）。
 func (l *Logger) Error(msg string) { l.log(levelError, msg) }
 
+// Infof 按格式化字符串记录信息级日志。
+func (l *Logger) Infof(format string, args ...any) { l.log(levelInfo, fmt.Sprintf(format, args...)) }
+
+// Warnf 按格式化字符串记录警告级日志。
+func (l *Logger) Warnf(format string, args ...any) { l.log(levelWarn, fmt.Sprintf(format, args...)) }
+
+// Errorf 按格式化字符串记录错误级日志。
+func (l *Logger) Errorf(format string, args ...any) { l.log(levelError, fmt.Sprintf(format, args...)) }
+
 // Close 释放日志文件资源。重复调用安全。
 func (l *Logger) Close() {
 	l.mu.Lock()

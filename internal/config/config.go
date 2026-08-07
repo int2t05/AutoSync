@@ -1,6 +1,6 @@
-// config.go 负责同步配置的加载、默认值填充与校验。
-// 配置文件为 YAML，位于 ~/.autosync/（可用 --config 覆盖路径）。
-// 启动时即校验：必填项缺失、目录不存在、策略非法、时间间隔无法解析均报错，
+// config.go 负责同步配置的默认值填充与校验。
+// 配置项内嵌于多任务配置文件 ~/.autosync/autosync.conf.yaml 的 tasks 列表（可用 --config 覆盖路径）。
+// 校验：必填项缺失、目录不存在、策略非法、时间间隔无法解析或低于 1 分钟均报错，
 // 调用方应据此以退出码 1 终止，避免运行中失败。
 package config
 
@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
-// Config 描述一次同步运行所需的全部配置。
-// 字段与 config.yaml 一一对应；带 yaml:"-" 的字段为解析后的派生值，不来自配置文件。
+// Config 描述单个同步任务所需的全部配置。
+// 字段与 autosync.conf.yaml 的 tasks 项一一对应；带 yaml:"-" 的字段为解析后的派生值，不来自配置文件。
 type Config struct {
 	RepoDir           string        `yaml:"repo_dir" json:"repo_dir"`                       // 同步目标文件夹（必填）
 	RemoteURL         string        `yaml:"remote_url" json:"remote_url"`                   // 远程仓库地址，首次初始化用（必填）
@@ -40,26 +38,6 @@ var defaultIgnore = []string{
 	"Thumbs.db",
 	"desktop.ini",
 	".DS_Store",
-}
-
-// Load 从 path 读取并解析配置，填充默认值并校验。
-// path: 配置文件路径；返回校验通过的 Config，或带明确信息的 error。
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("读取配置文件失败 %s: %w", path, err)
-	}
-
-	cfg := &Config{}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
-	}
-
-	cfg.applyDefaults()
-	if err := cfg.validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
 }
 
 // applyDefaults 为未设置（零值）的可选项填充默认值。
@@ -124,6 +102,9 @@ func (c *Config) validateRequired() error {
 	if err != nil {
 		return fmt.Errorf("config: interval 解析失败 %q: %w", c.Interval, err)
 	}
+	if dur < time.Minute {
+		return fmt.Errorf("config: interval 不能小于 1 分钟（当前 %q）", c.Interval)
+	}
 	c.IntervalDur = dur
 	rdur, err := time.ParseDuration(c.RetryBaseDelay)
 	if err != nil {
@@ -150,27 +131,16 @@ func (c *Config) validateRepoDir() error {
 	return nil
 }
 
-// LoadLenient 加载配置但不校验 repo_dir 存在性。
-// 供 status 等命令在仓库目录暂时不可用时仍能读取状态文件路径等配置。
-func LoadLenient(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("读取配置文件失败 %s: %w", path, err)
-	}
-	cfg := &Config{}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
-	}
-	cfg.applyDefaults()
-	if err := cfg.validateRequired(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
 // Normalize 填充默认值并完整校验（含 repo_dir 存在性），填充派生字段。
 // 导出供 configstore 复用，避免多任务配置重复实现默认值与校验。
 func (c *Config) Normalize() error {
 	c.applyDefaults()
 	return c.validate()
+}
+
+// NormalizeLenient 填充默认值并校验（跳过 repo_dir 存在性），填充派生字段。
+// 供 configstore.LoadLenient 复用，使 status 等命令在仓库目录暂时不可用时仍能读取配置。
+func (c *Config) NormalizeLenient() error {
+	c.applyDefaults()
+	return c.validateRequired()
 }

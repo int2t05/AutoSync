@@ -34,16 +34,16 @@ func Ensure(path string, entries []string) (int, error) {
 		return 0, nil
 	}
 
+	// 一次性追加全部缺失条目（单次 Write，避免逐条写入崩溃残留半行）。
+	// 不写临时文件再改名——临时文件落在仓库目录会被 git add 污染同步。
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
 
-	for _, e := range toAdd {
-		if _, err := f.WriteString(e + "\n"); err != nil {
-			return 0, err
-		}
+	if _, err := f.WriteString(strings.Join(toAdd, "\n") + "\n"); err != nil {
+		return 0, err
 	}
 	return len(toAdd), nil
 }
