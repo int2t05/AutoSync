@@ -9,12 +9,13 @@ import (
 	"time"
 )
 
-// State 记录上次同步的结果摘要。
+// State 记录上次同步的结果摘要与任务运行标志。
 type State struct {
 	LastSyncAt   time.Time `json:"last_sync_at"`            // 上次同步时间
 	LastOutcome  string    `json:"last_outcome"`            // 上次结果标签（Outcome.String()）
 	LastMessage  string    `json:"last_message"`            // 摘要
 	BackupBranch string    `json:"backup_branch,omitempty"` // local_wins 时的备份分支名
+	Paused       bool      `json:"paused,omitempty"`        // 任务暂停标志（热重载/重启后保持）
 }
 
 // Store 负责状态的读写，互斥锁保护并发安全。
@@ -32,6 +33,11 @@ func New(path string) *Store {
 func (s *Store) Load() (*State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.loadLocked()
+}
+
+// loadLocked 读取状态（须持 s.mu）；文件不存在返回零 State。
+func (s *Store) loadLocked() (*State, error) {
 	st := &State{}
 	data, err := os.ReadFile(s.path)
 	if err != nil {
@@ -50,9 +56,27 @@ func (s *Store) Load() (*State, error) {
 func (s *Store) Save(st State) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.saveLocked(st)
+}
+
+// saveLocked 序列化并写入状态（须持 s.mu）。
+func (s *Store) saveLocked(st State) error {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(s.path, data, 0644)
+}
+
+// Update 在锁内读-改-写：读取现有状态，回调 mod 就地修改后保存。
+// 两路写入者（同步结果 / 暂停标志）共用，互不覆盖对方字段。
+func (s *Store) Update(mod func(*State)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	mod(st)
+	return s.saveLocked(*st)
 }

@@ -12,6 +12,7 @@ import (
 	"autosync/internal/configstore"
 	"autosync/internal/gitignore"
 	"autosync/internal/log"
+	"autosync/internal/state"
 	"autosync/internal/sync"
 	"autosync/internal/tasksched"
 )
@@ -154,7 +155,27 @@ func TestTaskRunner_Pause(t *testing.T) {
 	}
 }
 
-// TestTaskScheduler_PauseBlocks 验证暂停时 ticker 不触发（无状态文件），恢复后触发。
+// TestTaskRunner_PausedPersisted 验证暂停标志持久化：SetPaused 写入 state，重建 TaskRunner 后恢复。
+func TestTaskRunner_PausedPersisted(t *testing.T) {
+	d := makeTempDir(t, "autosync-repo-*")
+	task := schedTask(t, "pausepersist", d, "u", "1m")
+
+	r := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{})
+	r.SetPaused(true)
+	r2 := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{})
+	if !r2.Paused() {
+		t.Error("重建后应恢复暂停状态")
+	}
+
+	r2.SetPaused(false)
+	r3 := tasksched.NewTaskRunner(task, schedLogger(t), &recordingNotifier{})
+	if r3.Paused() {
+		t.Error("取消暂停重建后应为非暂停")
+	}
+}
+
+// TestTaskScheduler_PauseBlocks 验证暂停时 ticker 不触发（无同步结果写入），恢复后触发。
+// SetPaused 持久化 paused 标志本身会写 state 文件，故以 LastSyncAt 是否推进为判据。
 func TestTaskScheduler_PauseBlocks(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -168,13 +189,31 @@ func TestTaskScheduler_PauseBlocks(t *testing.T) {
 	s.Start()
 	defer s.Stop()
 
-	time.Sleep(300 * time.Millisecond) // 暂停期间不应写状态文件
-	if _, err := os.Stat(task.ResolveStateFile()); err == nil {
-		t.Errorf("暂停期间不应写状态文件")
+	time.Sleep(300 * time.Millisecond) // 暂停期间 ticker 不应执行同步
+	st, err := state.New(task.ResolveStateFile()).Load()
+	if err != nil {
+		t.Fatalf("读状态文件: %v", err)
+	}
+	if !st.Paused {
+		t.Error("暂停期间状态应标记 paused")
+	}
+	if !st.LastSyncAt.IsZero() {
+		t.Errorf("暂停期间不应执行同步（LastSyncAt 应为零），got %v", st.LastSyncAt)
 	}
 	s.SetPaused("pause", false) // 恢复
-	if !waitStateFile(task, 2*time.Second) {
-		t.Errorf("恢复后应写状态文件")
+
+	// 等待 ticker 真正执行一次同步（LastSyncAt 推进非零）
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		st, err = state.New(task.ResolveStateFile()).Load()
+		if err == nil && !st.LastSyncAt.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("恢复后未执行同步（LastSyncAt 仍为零）")
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

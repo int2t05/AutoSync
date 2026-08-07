@@ -28,19 +28,28 @@ type TaskRunner struct {
 	paused   bool // 暂停标志：暂停时 ticker 跳过触发
 }
 
-// NewTaskRunner 创建任务执行器。notifier 注入通知投递。ticker 触发的结果回调由 TaskScheduler 持有。
+// NewTaskRunner 创建任务执行器，从 state 文件恢复暂停标志（热重载/重启后保持）。
+// notifier 注入通知投递；ticker 触发的结果回调由 TaskScheduler 持有。
 func NewTaskRunner(task *configstore.Task, logger *log.Logger, notifier notify.Notifier) *TaskRunner {
-	return &TaskRunner{task: task, logger: logger, notifier: notifier}
+	r := &TaskRunner{task: task, logger: logger, notifier: notifier}
+	if st, err := state.New(task.ResolveStateFile()).Load(); err == nil {
+		r.paused = st.Paused
+	}
+	return r
 }
 
 // Task 返回执行器关联的任务（供托盘查询状态）。
 func (r *TaskRunner) Task() *configstore.Task { return r.task }
 
-// SetPaused 设置任务暂停/恢复。暂停时定时 ticker 跳过触发（手动 RunNow 仍可强制执行）。
+// SetPaused 设置任务暂停/恢复并持久化到 state（热重载/重启后保持）。
+// 暂停时定时 ticker 跳过触发（手动 RunNow 仍可强制执行）。
 func (r *TaskRunner) SetPaused(p bool) {
 	r.pauseMu.Lock()
 	r.paused = p
 	r.pauseMu.Unlock()
+	if err := state.New(r.task.ResolveStateFile()).Update(func(st *state.State) { st.Paused = p }); err != nil {
+		r.logger.Warn(fmt.Sprintf("任务 %s 持久化暂停状态失败: %v", r.task.Name, err))
+	}
 }
 
 // Paused 返回任务是否暂停。
@@ -76,12 +85,12 @@ func (r *TaskRunner) Run() sync.SyncResult {
 	)
 	result := sync.NewSyncer(&r.task.Config, gitOp, r.logger).Run()
 
-	// 持久化状态（供 status / 托盘读取）
-	if err := state.New(r.task.ResolveStateFile()).Save(state.State{
-		LastSyncAt:   time.Now(),
-		LastOutcome:  result.Outcome.String(),
-		LastMessage:  result.Message,
-		BackupBranch: result.BackupBranch,
+	// 持久化状态（供 status / 托盘读取）；Update 保留暂停标志，不覆盖
+	if err := state.New(r.task.ResolveStateFile()).Update(func(st *state.State) {
+		st.LastSyncAt = time.Now()
+		st.LastOutcome = result.Outcome.String()
+		st.LastMessage = result.Message
+		st.BackupBranch = result.BackupBranch
 	}); err != nil {
 		r.logger.Warn(fmt.Sprintf("任务 %s 写状态文件失败: %v", r.task.Name, err))
 	}
