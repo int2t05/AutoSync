@@ -34,13 +34,14 @@ func mkTask(name, repoDir, remoteURL string) *configstore.Task {
 }
 
 // TestConfigStore_LoadMultiTask 验证多任务配置加载与默认值填充。
+// 任务名须为 ASCII（safeName 按文件名安全形式判重，两个 CJK 名会解析碰撞）。
 func TestConfigStore_LoadMultiTask(t *testing.T) {
 	d1, d2 := twoRepoDirs(t)
 	content := "tasks:\n" +
-		"  - name: '项目'\n" +
+		"  - name: 'proj'\n" +
 		"    repo_dir: '" + d1 + "'\n" +
 		"    remote_url: 'https://github.com/a/b.git'\n" +
-		"  - name: '文档'\n" +
+		"  - name: 'docs'\n" +
 		"    repo_dir: '" + d2 + "'\n" +
 		"    remote_url: 'https://github.com/c/d.git'\n" +
 		"    conflict_strategy: 'remote_wins'\n"
@@ -52,7 +53,7 @@ func TestConfigStore_LoadMultiTask(t *testing.T) {
 	if len(tasks) != 2 {
 		t.Fatalf("任务数 = %d, 期望 2", len(tasks))
 	}
-	if tasks[0].Name != "项目" || tasks[0].RepoDir != d1 {
+	if tasks[0].Name != "proj" || tasks[0].RepoDir != d1 {
 		t.Errorf("任务0: name=%s repo=%s", tasks[0].Name, tasks[0].RepoDir)
 	}
 	if tasks[0].Remote != "origin" || tasks[0].Branch != "main" || tasks[0].ConflictStrategy != "conflict_files" {
@@ -216,5 +217,76 @@ func TestConfigStore_SaveAtomic(t *testing.T) {
 		if strings.HasSuffix(e.Name(), ".tmp") {
 			t.Errorf("残留临时文件: %s", e.Name())
 		}
+	}
+}
+
+// TestConfigStore_RepoDirUnique 验证四入口（Load/Add/Update/ReplaceAll）均拒绝重复 repo_dir。
+func TestConfigStore_RepoDirUnique(t *testing.T) {
+	d1, d2 := twoRepoDirs(t)
+
+	// Load 拒绝重复 repo_dir
+	dup := "tasks:\n  - name: 'a'\n    repo_dir: '" + d1 + "'\n    remote_url: 'u'\n  - name: 'b'\n    repo_dir: '" + d1 + "'\n    remote_url: 'u'\n"
+	if _, err := configstore.Load(writeConfigFile(t, dup)); err == nil {
+		t.Errorf("Load 重复 repo_dir 应失败")
+	}
+
+	// Add 拒绝与现有任务同 repo_dir；独立目录可通过
+	p := filepath.Join(makeTempDir(t, "autosync-cfg-*"), "autosync.conf.yaml")
+	store := configstore.NewStore(p)
+	if err := store.Add(mkTask("a", d1, "u")); err != nil {
+		t.Fatalf("Add a: %v", err)
+	}
+	if err := store.Add(mkTask("b", d1, "u")); err == nil {
+		t.Errorf("Add 重复 repo_dir 应失败")
+	}
+	if err := store.Add(mkTask("b", d2, "u")); err != nil {
+		t.Fatalf("Add b 独立 repo_dir 应通过: %v", err)
+	}
+
+	// Update 排除自身：a 保留原目录可通过；b 改为指向 a 的目录应失败
+	if err := store.Update("a", mkTask("a", d1, "u2")); err != nil {
+		t.Fatalf("Update a 自身目录应通过: %v", err)
+	}
+	if err := store.Update("b", mkTask("b", d1, "u2")); err == nil {
+		t.Errorf("Update 指向他人 repo_dir 应失败")
+	}
+
+	// ReplaceAll 拒绝重复 repo_dir
+	if err := store.ReplaceAll([]*configstore.Task{mkTask("x", d1, "u"), mkTask("y", d1, "u")}); err == nil {
+		t.Errorf("ReplaceAll 重复 repo_dir 应失败")
+	}
+}
+
+// TestConfigStore_SafeNameCollision 验证四入口按 safeName 判重（"a b" 与 "a_b" 冲突）。
+func TestConfigStore_SafeNameCollision(t *testing.T) {
+	d1, d2 := twoRepoDirs(t)
+
+	// Load："a b" 与 "a_b" 均解析为 a_b → 拒绝
+	dup := "tasks:\n  - name: 'a b'\n    repo_dir: '" + d1 + "'\n    remote_url: 'u'\n  - name: 'a_b'\n    repo_dir: '" + d2 + "'\n    remote_url: 'u'\n"
+	if _, err := configstore.Load(writeConfigFile(t, dup)); err == nil {
+		t.Errorf("Load safeName 冲突应失败")
+	}
+
+	// Add：已有 a_b 时新增 "a b" 应失败
+	p := filepath.Join(makeTempDir(t, "autosync-cfg-*"), "autosync.conf.yaml")
+	store := configstore.NewStore(p)
+	if err := store.Add(mkTask("a_b", d1, "u")); err != nil {
+		t.Fatalf("Add a_b: %v", err)
+	}
+	if err := store.Add(mkTask("a b", d2, "u")); err == nil {
+		t.Errorf("Add safeName 冲突应失败")
+	}
+	if err := store.Add(mkTask("c", d2, "u")); err != nil {
+		t.Fatalf("Add c: %v", err)
+	}
+
+	// Update：c 改名为 "a b"（safeName a_b）与现有 a_b 冲突 → 失败
+	if err := store.Update("c", mkTask("a b", d2, "u")); err == nil {
+		t.Errorf("Update 改名 safeName 冲突应失败")
+	}
+
+	// ReplaceAll：两任务 safeName 冲突应失败
+	if err := store.ReplaceAll([]*configstore.Task{mkTask("c d", d1, "u"), mkTask("c_d", d2, "u")}); err == nil {
+		t.Errorf("ReplaceAll safeName 冲突应失败")
 	}
 }

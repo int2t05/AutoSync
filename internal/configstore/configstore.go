@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -59,6 +60,9 @@ func Load(path string) (*Store, error) {
 	if err := checkUniqueNames(tasks); err != nil {
 		return nil, err
 	}
+	if err := checkUniqueRepoDirs(tasks); err != nil {
+		return nil, err
+	}
 	return &Store{path: path, tasks: tasks}, nil
 }
 
@@ -76,14 +80,33 @@ func parseTasks(data []byte) ([]*Task, error) {
 	return tf.Tasks, nil
 }
 
-// checkUniqueNames 校验任务名唯一。
+// checkUniqueNames 校验任务名按 safeName 解析后唯一（"a b" 与 "a_b" 同键冲突，
+// 否则二者共享 state/lock 文件互相串扰）。
 func checkUniqueNames(tasks []*Task) error {
-	seen := make(map[string]bool)
+	seen := make(map[string]string) // safeName -> 原任务名
 	for _, t := range tasks {
-		if seen[t.Name] {
-			return fmt.Errorf("任务名重复: %q", t.Name)
+		key := safeName(t.Name)
+		if owner, dup := seen[key]; dup {
+			return fmt.Errorf("任务名冲突: %q 与 %q 均解析为 %q", owner, t.Name, key)
 		}
-		seen[t.Name] = true
+		seen[key] = t.Name
+	}
+	return nil
+}
+
+// checkUniqueRepoDirs 校验任务 repo_dir 跨任务唯一，防止多任务并发读写同一仓库互相破坏。
+// 键为 filepath.Clean 归一化路径；Windows 文件系统大小写不敏感，统一小写比较，其他平台保持大小写敏感。
+func checkUniqueRepoDirs(tasks []*Task) error {
+	seen := make(map[string]string) // 归一化 repo_dir -> 任务名
+	for _, t := range tasks {
+		key := filepath.Clean(t.RepoDir)
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if owner, dup := seen[key]; dup {
+			return fmt.Errorf("任务 %q 与 %q 的 repo_dir 重复: %q", owner, t.Name, t.RepoDir)
+		}
+		seen[key] = t.Name
 	}
 	return nil
 }
@@ -109,47 +132,60 @@ func (s *Store) Get(name string) *Task {
 	return nil
 }
 
-// Add 新增任务；校验名唯一与合法性后追加。不落盘，需 Save 持久化。
+// Add 新增任务；校验合法性、名与 repo_dir 唯一性后追加。不落盘，需 Save 持久化。
 func (s *Store) Add(t *Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if t.Name == "" {
 		return fmt.Errorf("任务名不能为空")
 	}
-	for _, ex := range s.tasks {
-		if ex.Name == t.Name {
-			return fmt.Errorf("任务名已存在: %q", t.Name)
-		}
-	}
 	if err := t.Normalize(); err != nil {
 		return fmt.Errorf("任务 %q 校验失败: %w", t.Name, err)
+	}
+	// 与现有任务合并校验唯一性，通过后才追加
+	combined := append(append([]*Task(nil), s.tasks...), t)
+	if err := checkUniqueNames(combined); err != nil {
+		return err
+	}
+	if err := checkUniqueRepoDirs(combined); err != nil {
+		return err
 	}
 	s.tasks = append(s.tasks, t)
 	return nil
 }
 
-// Update 用 t 替换名为 name 的任务；name 不存在或新名与他人冲突返回错误。
+// Update 用 t 替换名为 name 的任务；name 不存在或新任务与他人名/repo_dir 冲突返回错误。
 func (s *Store) Update(name string, t *Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if t.Name == "" {
 		return fmt.Errorf("任务名不能为空")
 	}
-	for _, ex := range s.tasks {
-		if ex.Name != name && ex.Name == t.Name {
-			return fmt.Errorf("任务名已存在: %q", t.Name)
-		}
-	}
 	if err := t.Normalize(); err != nil {
 		return fmt.Errorf("任务 %q 校验失败: %w", t.Name, err)
 	}
-	for i, ex := range s.tasks {
+	// 从列表移除被替换的自身后与新任务合并校验，防新旧同名/同目录误报
+	next := make([]*Task, 0, len(s.tasks))
+	replaced := false
+	for _, ex := range s.tasks {
 		if ex.Name == name {
-			s.tasks[i] = t
-			return nil
+			replaced = true
+			continue
 		}
+		next = append(next, ex)
 	}
-	return fmt.Errorf("任务不存在: %q", name)
+	if !replaced {
+		return fmt.Errorf("任务不存在: %q", name)
+	}
+	next = append(next, t)
+	if err := checkUniqueNames(next); err != nil {
+		return err
+	}
+	if err := checkUniqueRepoDirs(next); err != nil {
+		return err
+	}
+	s.tasks = next
+	return nil
 }
 
 // Delete 按名删除任务。
@@ -179,6 +215,9 @@ func (s *Store) ReplaceAll(tasks []*Task) error {
 		}
 	}
 	if err := checkUniqueNames(tasks); err != nil {
+		return err
+	}
+	if err := checkUniqueRepoDirs(tasks); err != nil {
 		return err
 	}
 	s.tasks = append([]*Task(nil), tasks...)
