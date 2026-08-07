@@ -107,6 +107,7 @@ type TaskScheduler struct {
 	wg       stdsync.WaitGroup
 	mu       stdsync.Mutex
 	running  bool
+	reloadMu stdsync.Mutex // 串行化并发 Reload（后台重建互不交错）
 }
 
 // NewTaskScheduler 为每个任务构造一个 TaskRunner，透传 notifier 与 onResult 给每个执行器。
@@ -221,15 +222,24 @@ func (s *TaskScheduler) report(r *TaskRunner) {
 	}
 }
 
-// Reload 用新任务列表重建执行器并重启 ticker（配置变更后热重载），透传 notifier 与 onResult。
-func (s *TaskScheduler) Reload(tasks []*configstore.Task) {
-	s.Stop()
-	runners := make([]*TaskRunner, 0, len(tasks))
-	for _, t := range tasks {
-		runners = append(runners, NewTaskRunner(t, s.logger, s.notifier))
-	}
-	s.mu.Lock()
-	s.runners = runners
-	s.mu.Unlock()
-	s.Start()
+// Reload 后台异步重建调度器：停止旧 ticker（Stop 有界，见 git 超时）→ 重建 runners → 重启 → onDone。
+// 调用方（UI/IPC 线程）立即返回，不再冻结在 Stop 的等待上（此前 git 挂起时配置窗口冻结）。
+// 并发 Reload 由 reloadMu 串行化；进程退出瞬间若 Reload 仍在进行，Start 复活 ticker 随进程消亡。
+func (s *TaskScheduler) Reload(tasks []*configstore.Task, onDone func()) {
+	go func() {
+		s.reloadMu.Lock()
+		defer s.reloadMu.Unlock()
+		s.Stop()
+		runners := make([]*TaskRunner, 0, len(tasks))
+		for _, t := range tasks {
+			runners = append(runners, NewTaskRunner(t, s.logger, s.notifier))
+		}
+		s.mu.Lock()
+		s.runners = runners
+		s.mu.Unlock()
+		s.Start()
+		if onDone != nil {
+			onDone()
+		}
+	}()
 }

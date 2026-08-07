@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"autosync/internal/config"
 	"autosync/internal/configstore"
@@ -243,5 +244,44 @@ func TestEngine_Quit(t *testing.T) {
 	sendCmd(t, stdin, engine.Command{Cmd: "quit"})
 	if ev := readEvent(t, stdout); ev.Event != "bye" {
 		t.Fatalf("event=%s, 期望 bye", ev.Event)
+	}
+}
+
+// TestEngine_StdoutBlocked_Continues 验证壳不读 stdout（管道写满）时引擎仍能处理 quit 退出，
+// 事件被丢弃而非阻塞命令循环（in-process，os.Pipe 驱动）。
+func TestEngine_StdoutBlocked_Continues(t *testing.T) {
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdinW.Close()
+	defer stdoutR.Close()
+	defer stdoutW.Close()
+
+	store := configstore.NewStore(filepath.Join(t.TempDir(), "autosync.conf.yaml"))
+	done := make(chan int, 1)
+	go func() { done <- engine.New(store, schedLogger(t), stdinR, stdoutW).Run() }()
+
+	// 海量 status 命令（stdin 行均小、不触发 Scanner 上限）累计产生 > 64KB 的 stdout 事件：
+	// 测试不读 stdoutR，管道写满后事件应被丢弃而非阻塞引擎；quit 仍须被处理使引擎退出。
+	status, _ := json.Marshal(engine.Command{Cmd: "status"})
+	for i := 0; i < 2000; i++ {
+		if _, err := stdinW.Write(append(status, '\n')); err != nil {
+			t.Fatal(err)
+		}
+	}
+	quit, _ := json.Marshal(engine.Command{Cmd: "quit"})
+	if _, err := stdinW.Write(append(quit, '\n')); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("stdout 写满时引擎应仍能退出（事件丢弃而非阻塞）")
 	}
 }

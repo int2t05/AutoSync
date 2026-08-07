@@ -64,6 +64,7 @@ flowchart LR
 - **单实例锁**：`O_EXCL` 创建锁文件写 PID + 进程启动时间；持有者存活且身份一致（启动时间相符）才跳过，已死 / 损坏 / PID 复用则接管。`pidAlive` 跨平台（Unix `kill -0` / Windows `tasklist` 带超时），`processStartTime` 读创建时间（Windows `GetProcessTimes` / Linux `/proc/<pid>/stat` / darwin `sysctl`）。
 - **git 命令统一超时**：全部 git 命令带超时（默认 `git_timeout=60s`），防网络挂起冻结调度/退出。超时双保险——`CommandContext` 杀直接进程 + 定时强制关闭管道读端（Windows 管道不支持 deadline，孙子进程如 hook/ssh 继承写端时仅杀直接进程仍会阻塞读）。
 - **配置↔仓库一致性**：同步前核对 `git remote get-url` 与配置 `remote_url`（`NormalizeRemoteURL` 归一化比较）、当前分支与配置 `branch`，不一致显式 Failed——改配置不再静默失效，也拒绝在无关远程/分支上做写操作。
+- **热重载异步**：`TaskScheduler.Reload` 后台重建（Stop 有界），UI/IPC 线程不冻结；退出等待进行中同步有界。
 - **重试**：纯控制流 `Retry` 指数退避，装饰器仅覆盖网络方法。
 - **追加式 .gitignore**：仅追加缺失条目，绝不覆盖用户既有配置。
 - **配置宽松加载**：`LoadLenient` 跳过 repo_dir 存在性校验，供 status / install 在仓库未就绪时使用。
@@ -147,6 +148,7 @@ flowchart TB
 
 - **进程模型**：macOS 双进程（壳 + 引擎），壳管 GUI/自启/通知/单实例，引擎管同步调度；Windows 仍单进程 Fyne 托盘。
 - **IPC**：JSON 行协议（`internal/engine/protocol.go`），命令 status/sync-now/pause/resume/config-list/config-save/quit，事件 ready/status/sync-result/notify/bye 等。
+- **事件写出**：有界队列 + 单写者 goroutine——壳不读 stdout（管道写满）时事件被丢弃而非阻塞引擎循环（防双向死锁）；quit 时先停调度器再冲刷 bye。
 - **依赖倒置**：`tasksched` 的 Notifier 与 onResult 回调由调用方注入（Windows beeep / macOS IPC 委托壳）。
 - **分发**：未签名 DMG + `xattr` 文档（起步），后续可升级 Developer ID 公证。
 

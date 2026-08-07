@@ -7,8 +7,9 @@ package engine
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
-	stdsync "sync"
+	"sync/atomic"
 	"time"
 
 	"autosync/internal/config"
@@ -25,22 +26,25 @@ const Version = "1.2.0"
 
 // Engine 持有调度器与 IPC 读写器，实现引擎子进程主循环。
 type Engine struct {
-	store *configstore.Store
-	sched *tasksched.TaskScheduler
-	r     io.Reader
-	enc   *json.Encoder
-	mu    stdsync.Mutex // 保护 stdout 写入（事件 + ipcNotifier 并发）
+	store   *configstore.Store
+	sched   *tasksched.TaskScheduler
+	logger  *log.Logger
+	r       io.Reader
+	evCh    chan []byte         // 事件队列（有界）：壳不读 stdout 时丢弃而非阻塞引擎循环
+	flushCh chan chan struct{}  // 冲刷请求：写环排空队列后关闭完成通道
+	dropN   atomic.Int64        // 丢弃计数（节流日志）
 }
 
 // New 创建引擎。内部构造 ipcNotifier（notify 事件经 writeEvent）与 onResult（ticker 结果上报）。
-// logger 透传给调度器，引擎自身不持有。
+// 启动单写者 writeLoop 写 stdout：事件顺序由单写者保证，且引擎循环不被壳不读的 stdout 阻塞。
 func New(store *configstore.Store, logger *log.Logger, r io.Reader, w io.Writer) *Engine {
-	e := &Engine{store: store, r: r, enc: json.NewEncoder(w)}
+	e := &Engine{store: store, logger: logger, r: r, evCh: make(chan []byte, 8), flushCh: make(chan chan struct{})}
 	ipcN := &ipcNotifier{e: e}
 	onResult := func(task string, res sync.SyncResult) {
 		e.writeSyncResult(0, task, res)
 	}
 	e.sched = tasksched.NewTaskScheduler(store.List(), logger, ipcN, onResult)
+	go e.writeLoop(w)
 	return e
 }
 
@@ -54,7 +58,6 @@ func (e *Engine) Run() int {
 		Tasks:   e.taskStatuses(),
 	})
 	e.sched.Start()
-	defer e.sched.Stop()
 
 	sc := bufio.NewScanner(e.r)
 	for sc.Scan() {
@@ -67,6 +70,8 @@ func (e *Engine) Run() int {
 			break // quit
 		}
 	}
+	e.sched.Stop()           // 停止 ticker（有界），其后不再产生新的 onResult 事件
+	e.flush(2 * time.Second) // 冲刷 bye（壳不读 stdout 时写环阻塞，超时放弃）
 	return 0
 }
 
@@ -97,10 +102,10 @@ func (e *Engine) handle(cmd Command) bool {
 		ts, dtos := e.taskSnapshot()
 		e.writeEvent(Event{ID: cmd.ID, Event: "config-list", Tasks: ts, ConfigTasks: dtos})
 	case "config-save":
-		if err := e.saveConfig(cmd.Tasks); err != nil {
+		ts, dtos, err := e.saveConfig(cmd.Tasks)
+		if err != nil {
 			e.cmdError(cmd.ID, err)
 		} else {
-			ts, dtos := e.taskSnapshot()
 			e.writeEvent(Event{ID: cmd.ID, Event: "config-saved", Tasks: ts, ConfigTasks: dtos})
 		}
 	case "quit":
@@ -130,26 +135,50 @@ func (e *Engine) writeSyncResult(id int, task string, res sync.SyncResult) {
 	})
 }
 
-// saveConfig 把 IPC 任务 DTO 转为 configstore.Task，ReplaceAll + Save + 热重载调度器。
-func (e *Engine) saveConfig(dtos []*TaskDTO) error {
+// saveConfig 把 IPC 任务 DTO 转为 configstore.Task，ReplaceAll + Save + 后台热重载调度器。
+// Reload 异步执行（Stop 有界），故响应快照取自新任务列表而非 runners（后者尚未重建）。
+func (e *Engine) saveConfig(dtos []*TaskDTO) ([]TaskStatus, []*TaskDTO, error) {
 	tasks := make([]*configstore.Task, 0, len(dtos))
 	for _, d := range dtos {
 		tasks = append(tasks, dtoToTask(d))
 	}
 	if err := e.store.ReplaceAll(tasks); err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err := e.store.Save(); err != nil {
-		return err
+		return nil, nil, err
 	}
-	e.sched.Reload(tasks)
-	return nil
+	e.sched.Reload(tasks, nil)
+	ts, dtos := snapshotOf(tasks)
+	return ts, dtos, nil
+}
+
+// snapshotOf 从任务列表构造状态与配置投影（供 config-saved 即时响应）。
+func snapshotOf(tasks []*configstore.Task) ([]TaskStatus, []*TaskDTO) {
+	statuses := make([]TaskStatus, 0, len(tasks))
+	dtos := make([]*TaskDTO, 0, len(tasks))
+	for _, t := range tasks {
+		statuses = append(statuses, buildStatusFromTask(t))
+		dtos = append(dtos, taskToDTO(t))
+	}
+	return statuses, dtos
 }
 
 // buildStatus 从单个执行器构造状态投影（含上次同步结果，读 state 文件）。
 func buildStatus(r *tasksched.TaskRunner) TaskStatus {
 	t := r.Task()
 	ts := TaskStatus{Name: t.Name, RepoDir: t.RepoDir, Interval: t.Interval, Paused: r.Paused()}
+	if st, err := state.New(t.ResolveStateFile()).Load(); err == nil && !st.LastSyncAt.IsZero() {
+		ts.LastSyncAt = st.LastSyncAt.Format(time.RFC3339)
+		ts.LastOutcome = st.LastOutcome
+		ts.LastMessage = st.LastMessage
+	}
+	return ts
+}
+
+// buildStatusFromTask 从任务构造状态投影（读 state 文件），供配置保存后的即时响应。
+func buildStatusFromTask(t *configstore.Task) TaskStatus {
+	ts := TaskStatus{Name: t.Name, RepoDir: t.RepoDir, Interval: t.Interval}
 	if st, err := state.New(t.ResolveStateFile()).Load(); err == nil && !st.LastSyncAt.IsZero() {
 		ts.LastSyncAt = st.LastSyncAt.Format(time.RFC3339)
 		ts.LastOutcome = st.LastOutcome
@@ -180,11 +209,69 @@ func (e *Engine) taskSnapshot() ([]TaskStatus, []*TaskDTO) {
 	return statuses, dtos
 }
 
-// writeEvent 加锁写一行 JSON 事件到 stdout（事件与 ipcNotifier 共享此锁，避免交错）。
+// writeEvent 把事件 marshal 后非阻塞入队；队列满（壳不读 stdout）时丢弃并节流记日志。
+// 引擎命令循环与 ticker 的 onResult/notify 均不被 stdout 阻塞（防管道写满双向死锁）。
 func (e *Engine) writeEvent(ev Event) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	_ = e.enc.Encode(ev)
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	data = append(data, '\n')
+	select {
+	case e.evCh <- data:
+	default:
+		if n := e.dropN.Add(1); n == 1 || n%1000 == 0 {
+			e.logger.Warn(fmt.Sprintf("IPC 事件队列满，丢弃事件（壳未读 stdout？累计 %d 条）", n))
+		}
+	}
+}
+
+// writeLoop 单写者消费事件队列写 stdout，保证事件顺序且不阻塞引擎循环。
+// 壳不读 stdout（管道写满）时 Write 阻塞的仅此一个 goroutine，队列填满后事件被丢弃。
+func (e *Engine) writeLoop(w io.Writer) {
+	for {
+		select {
+		case data := <-e.evCh:
+			writeData(w, data, e.logger)
+		case done := <-e.flushCh:
+			// 排空队列（含先入队的 bye）后确认冲刷完成
+		drain:
+			for {
+				select {
+				case data := <-e.evCh:
+					writeData(w, data, e.logger)
+				default:
+					close(done)
+					break drain
+				}
+			}
+		}
+	}
+}
+
+// writeData 写单条事件到 w；w 支持 deadline 时设 2s 写超时（Write 阻塞时快速恢复）。
+func writeData(w io.Writer, data []byte, logger *log.Logger) error {
+	if f, ok := w.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = f.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	}
+	_, err := w.Write(data)
+	if err != nil {
+		logger.Warn("写 IPC 事件失败: " + err.Error())
+	}
+	return err
+}
+
+// flush 请求写环排空事件队列（退出前冲刷 bye），超时即放弃——壳不读 stdout 时写环被阻塞。
+func (e *Engine) flush(timeout time.Duration) {
+	done := make(chan struct{})
+	select {
+	case e.flushCh <- done:
+		select {
+		case <-done:
+		case <-time.After(timeout):
+		}
+	case <-time.After(timeout):
+	}
 }
 
 // ipcNotifier 实现 notify.Notifier，经 Engine.writeEvent 写 notify 事件，委托壳投递系统通知。

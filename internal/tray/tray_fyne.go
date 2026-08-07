@@ -8,6 +8,7 @@ package tray
 import (
 	"fmt"
 	"os"
+	stdsync "sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -29,6 +30,7 @@ type TrayApp struct {
 	store  *configstore.Store
 	logger *log.Logger
 	win    fyne.Window
+	wg     stdsync.WaitGroup // 跟踪手动同步 goroutine，退出前等待收尾
 }
 
 // NewTrayApp 创建托盘应用，构造 Fyne 应用实例。
@@ -47,8 +49,9 @@ func (a *TrayApp) Run(showWindow bool) error {
 		a.showConfig()
 	}
 	a.sched.Start()
-	a.app.Run() // 阻塞至退出
-	a.sched.Stop()
+	a.app.Run()   // 阻塞至退出
+	a.sched.Stop() // 停止 ticker（git 超时兜底，等待有界）
+	a.wg.Wait()    // 等手动同步收尾（≤ git_timeout×重试，有界）
 	return nil
 }
 
@@ -110,9 +113,11 @@ func (a *TrayApp) buildMenu() *fyne.Menu {
 	return fyne.NewMenu("AutoSync", items...)
 }
 
-// runTask 在后台手动同步指定任务（不阻塞 UI）。
+// runTask 在后台手动同步指定任务（不阻塞 UI），受 wg 管控以便退出前等待收尾。
 func (a *TrayApp) runTask(name string) {
+	a.wg.Add(1)
 	go func() {
+		defer a.wg.Done()
 		result, err := a.sched.RunNow(name)
 		if err != nil {
 			a.logger.Warn(fmt.Sprintf("手动同步 %s 失败: %v", name, err))
@@ -246,12 +251,11 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, select
 	dlg.Show()
 }
 
-// persistAndReload 保存配置并热重载调度器与托盘菜单。
+// persistAndReload 保存配置并后台热重载调度器；完成回调经 fyne.Do 回到主线程刷新托盘菜单。
 func (a *TrayApp) persistAndReload() {
 	if err := a.store.Save(); err != nil {
 		dialog.ShowError(err, a.win)
 		return
 	}
-	a.sched.Reload(a.store.List())
-	a.refreshMenu()
+	a.sched.Reload(a.store.List(), func() { fyne.Do(a.refreshMenu) })
 }

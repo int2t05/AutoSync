@@ -125,5 +125,6 @@ flowchart TD
 
 - **启动**：`autosync.conf.yaml` 加载任务列表 → 每任务按 interval 起 ticker → 到点调 TaskRunner → TaskRunner 构造 Syncer 执行同步状态机（见上）→ 结果写该任务 state + 通知 + 回显托盘。
 - **手动同步**：托盘菜单选任务 → 立即调 TaskRunner（与定时同路径，单实例锁保护单仓库不并发）。
-- **配置变更**：窗口编辑 → 保存 `autosync.conf.yaml` → 热重载该任务 ticker（无需重启）。
+- **配置变更**：窗口编辑 → 保存 `autosync.conf.yaml` → 后台异步热重载（Stop 有界，UI 不冻结；完成回调刷新菜单），无需重启。
+- **退出**：点退出 → 停 ticker（git 超时兜底，等待有界）→ 等待进行中手动同步收尾 → 退出进程。
 - **自启**：注册表 Run 键 → 登录后系统拉起 `autosync`（无参数）→ 托盘守护。
