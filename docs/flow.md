@@ -49,7 +49,7 @@ flowchart TD
 
 **数据流**
 
-1. **加锁**：`O_EXCL` 创建 `autosync.lock` 写 PID；失败则读 PID 判断持有进程存活，存活跳过，已死接管。
+1. **加锁**：`O_EXCL` 创建锁文件写 PID + 进程启动时间；失败则判断持有者：存活且启动时间一致（防 PID 复用）才跳过，已死 / 复用 / 损坏则接管。
 2. **校验**：`git remote get-url <remote>` 与配置 `remote_url` 归一化比对（忽略协议/用户信息/尾部 `.git`）、`git branch --show-current` 与配置 `branch` 比对；不一致直接 Failed（配置错误不再静默失效，也拒绝在无关远程/分支上写操作）。
 3. **初始化**：`git init -b <branch>` → `remote add` → `add -A` → `commit --allow-empty` → `push -u`。仓库已存在但无 HEAD 提交（手动 `git init` 的空仓库）：fetch 后远程分支存在则 `checkout -B` 对齐，否则 `commit --allow-empty` + `push -u` 首推。
 4. **提交**：`git add -A` → `git status --porcelain` 判变更 → `git commit -m "<模板>"`。

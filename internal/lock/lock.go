@@ -1,6 +1,8 @@
 // lock.go 提供单实例锁，防止间隔内两个同步实例并发执行破坏仓库。
-// 锁文件用 O_CREATE|O_EXCL 创建并写入 PID；已存在时检测持有进程是否存活，
-// 存活则跳过本次，已死或损坏则接管。跨平台的 pidAlive 见 pidalive_*.go。
+// 锁文件用 O_CREATE|O_EXCL 创建并写入 PID + 进程启动时间：启动时间戳防 PID 复用误判——
+// 进程崩溃后 PID 被无关进程复用，仅查 PID 存活会误判"仍在持有"导致任务永久跳过。
+// 旧格式锁（单行 PID，升级遗留）无启动时间，退化为仅按 PID 存活判断。
+// 跨平台 pidAlive / processStartTime 见 pidalive_*.go。
 package lock
 
 import (
@@ -8,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Locker 单实例锁。
@@ -20,19 +23,25 @@ func New(path string) *Locker {
 	return &Locker{path: path}
 }
 
+// holder 锁文件记录的持有者信息。
+type holder struct {
+	pid      int
+	start    time.Time // 持有进程启动时间；旧格式锁无此字段时为零值
+	hasStart bool      // 是否含启动时间（旧格式锁为 false）
+}
+
 // Acquire 尝试获取锁。
-// 返回 (是否获取, 释放函数)。若被存活进程持有 → (false, nil)，调用方应静默跳过本次。
-// 若持有进程已死或锁文件损坏 → 接管。并发竞争失败时也返回 (false, nil)。
+// 返回 (是否获取, 释放函数)。若被存活且身份一致的进程持有 → (false, nil)，调用方应静默跳过本次。
+// 若持有进程已死、PID 被复用或锁文件损坏 → 接管。并发竞争失败时也返回 (false, nil)。
 func (l *Locker) Acquire() (bool, func()) {
 	if l.tryCreate() {
 		return true, l.release
 	}
-	// 锁文件已存在：判断持有进程是否存活
-	pid, ok := l.readPID()
-	if ok && pidAlive(pid) {
-		return false, nil // 存活，跳过本次
+	h, ok := l.readHolder()
+	if ok && l.holderAlive(h) {
+		return false, nil // 持有进程存活且身份一致，跳过本次
 	}
-	// 已死或损坏：删除后重建（接管）
+	// 已死 / PID 复用 / 损坏：删除后重建（接管）
 	os.Remove(l.path)
 	if l.tryCreate() {
 		return true, l.release
@@ -40,28 +49,62 @@ func (l *Locker) Acquire() (bool, func()) {
 	return false, nil // 并发竞争，放弃
 }
 
-// tryCreate 用 O_EXCL 创建锁文件并写入当前 PID，成功返回 true。
+// holderAlive 判断持有者是否仍存活且身份一致。
+// 旧格式锁（无启动时间）无法核对身份，退化为仅按 PID 存活判断。
+func (l *Locker) holderAlive(h holder) bool {
+	if !pidAlive(h.pid) {
+		return false
+	}
+	if h.hasStart {
+		return h.start.Equal(processStartTime(h.pid))
+	}
+	return true
+}
+
+// tryCreate 用 O_EXCL 创建锁文件并写入当前 PID 与进程启动时间，成功返回 true。
 func (l *Locker) tryCreate() bool {
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		return false
 	}
-	fmt.Fprintf(f, "%d\n", os.Getpid())
+	fmt.Fprintf(f, "%d\n%s\n", os.Getpid(), processStartTime(os.Getpid()).Format(time.RFC3339Nano))
 	f.Close()
 	return true
 }
 
-// readPID 读取锁文件中的 PID。
-func (l *Locker) readPID() (int, bool) {
+// readHolder 读取锁文件持有者信息；内容损坏时返回 (zero, false)。
+func (l *Locker) readHolder() (holder, bool) {
 	data, err := os.ReadFile(l.path)
 	if err != nil {
-		return 0, false
+		return holder{}, false
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
 	if err != nil {
-		return 0, false
+		return holder{}, false
 	}
-	return pid, true
+	h := holder{pid: pid}
+	if len(lines) >= 2 {
+		if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(lines[1])); err == nil {
+			h.start = t
+			h.hasStart = true
+		}
+	}
+	return h, true
+}
+
+// CleanStale 删除非存活持有的锁文件（供任务重命名清理旧锁）。
+// 持有者存活且身份一致时保留，避免误删进行中的任务锁。
+func CleanStale(path string) {
+	if _, err := os.Stat(path); err != nil {
+		return
+	}
+	l := &Locker{path: path}
+	h, ok := l.readHolder()
+	if ok && l.holderAlive(h) {
+		return
+	}
+	os.Remove(path)
 }
 
 // release 释放锁（删除锁文件）。
