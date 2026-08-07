@@ -237,6 +237,70 @@ func TestEngine_ConfigSave(t *testing.T) {
 	}
 }
 
+// TestEngine_ConfigSave_Fail_Rollback 验证 config-save 落盘失败时回 error 事件且内存态回滚
+// （store 仍为旧任务）。用 in-process 引擎（os.Pipe 驱动）以便失败后直接检查 store 状态。
+func TestEngine_ConfigSave_Fail_Rollback(t *testing.T) {
+	repo1 := makeWorkRepo(t)
+	remote1 := makeBareRemote(t)
+	addRemote(t, repo1, "origin", remote1)
+	pushToRemote(t, repo1, "origin", "main")
+	keep := schedTask(t, "keep", repo1, remote1, "1m")
+	presetGitignore(t, keep, repo1, remote1)
+
+	// store 配置路径指向目录：Save 的 os.Rename 替换目录必失败 → 触发回滚
+	cfgPath := filepath.Join(makeTempDir(t, "autosync-cfg-*"), "autosync.conf.yaml")
+	if err := os.Mkdir(cfgPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	store := configstore.NewStore(cfgPath)
+	if err := store.Add(keep); err != nil {
+		t.Fatalf("Add keep: %v", err)
+	}
+
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdinW.Close()
+	defer stdoutR.Close()
+	defer stdoutW.Close()
+	done := make(chan int, 1)
+	go func() { done <- engine.New(store, schedLogger(t), stdinR, stdoutW).Run() }()
+
+	// config-save 新增任务：ReplaceAll 通过、Save 失败 → error 事件
+	repo2 := makeWorkRepo(t)
+	remote2 := makeBareRemote(t)
+	addRemote(t, repo2, "origin", remote2)
+	pushToRemote(t, repo2, "origin", "main")
+	dto := &engine.TaskDTO{
+		Name:   "new",
+		Config: config.Config{RepoDir: repo2, RemoteURL: remote2, Branch: "main", Interval: "1m", ConflictStrategy: "conflict_files"},
+	}
+	sendCmd(t, stdinW, engine.Command{ID: 1, Cmd: "config-save", Tasks: []*engine.TaskDTO{dto}})
+	ev := readEventMatch(t, bufio.NewReader(stdoutR), func(e engine.Event) bool { return e.ID == 1 })
+	if ev.Event != "error" {
+		t.Fatalf("config-save 落盘失败应回 error 事件, got %+v", ev)
+	}
+
+	// 回滚后 store 仍为旧任务
+	list := store.List()
+	if len(list) != 1 || list[0].Name != "keep" {
+		t.Errorf("回滚后任务列表应保持旧任务, got %+v", list)
+	}
+
+	// 收尾：退出引擎，等待 goroutine 结束
+	sendCmd(t, stdinW, engine.Command{Cmd: "quit"})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("引擎退出超时")
+	}
+}
+
 // TestEngine_Quit 验证 quit 命令回 bye 并退出。
 func TestEngine_Quit(t *testing.T) {
 	stdin, stdout := startEngine(t, writeTrayConfig(t, nil))

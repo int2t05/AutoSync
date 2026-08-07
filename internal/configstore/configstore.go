@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"autosync/internal/config"
+	"autosync/internal/lock"
 	"gopkg.in/yaml.v3"
 )
 
@@ -166,15 +167,15 @@ func (s *Store) Update(name string, t *Task) error {
 	}
 	// 从列表移除被替换的自身后与新任务合并校验，防新旧同名/同目录误报
 	next := make([]*Task, 0, len(s.tasks))
-	replaced := false
+	var old *Task
 	for _, ex := range s.tasks {
 		if ex.Name == name {
-			replaced = true
+			old = ex
 			continue
 		}
 		next = append(next, ex)
 	}
-	if !replaced {
+	if old == nil {
 		return fmt.Errorf("任务不存在: %q", name)
 	}
 	next = append(next, t)
@@ -185,7 +186,21 @@ func (s *Store) Update(name string, t *Task) error {
 		return err
 	}
 	s.tasks = next
+	migrateByproducts(old, t)
 	return nil
+}
+
+// migrateByproducts 任务重命名后迁移 byproduct：state 文件重命名到新键，旧锁文件清理。
+// state 文件可能尚未生成（任务从未运行），静默跳过；锁文件可能正被进行中的同步持有，
+// CleanStale 仅在无存活持有者时删除，避免误删活动锁。
+func migrateByproducts(old, cur *Task) {
+	if safeName(old.Name) == safeName(cur.Name) {
+		return
+	}
+	if _, err := os.Stat(old.ResolveStateFile()); err == nil {
+		_ = os.Rename(old.ResolveStateFile(), cur.ResolveStateFile())
+	}
+	lock.CleanStale(old.ResolveLockFile())
 }
 
 // Delete 按名删除任务。
@@ -203,6 +218,7 @@ func (s *Store) Delete(name string) error {
 
 // ReplaceAll 用 tasks 全量替换当前任务列表（校验名唯一与合法性），不落盘，需 Save 持久化。
 // 供 engine config-save 命令原子替换配置：先全量校验，任一失败则不动现有列表。
+// 全量替换语义下不迁移 byproduct 文件（重命名迁移仅在 Update 单任务场景）。
 func (s *Store) ReplaceAll(tasks []*Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -65,6 +65,8 @@ flowchart LR
 - **git 命令统一超时**：全部 git 命令带超时（默认 `git_timeout=60s`），防网络挂起冻结调度/退出。超时双保险——`CommandContext` 杀直接进程 + 定时强制关闭管道读端（Windows 管道不支持 deadline，孙子进程如 hook/ssh 继承写端时仅杀直接进程仍会阻塞读）。
 - **配置↔仓库一致性**：同步前核对 `git remote get-url` 与配置 `remote_url`（`NormalizeRemoteURL` 归一化比较）、当前分支与配置 `branch`，不一致显式 Failed——改配置不再静默失效，也拒绝在无关远程/分支上做写操作。
 - **热重载异步**：`TaskScheduler.Reload` 后台重建（Stop 有界），UI/IPC 线程不冻结；退出等待进行中同步有界。
+- **config-save 落盘回滚**：engine 与托盘同构——先快照旧任务列表，`ReplaceAll` 校验替换后 `Save` 落盘，失败即回滚内存态且调度器不 Reload，壳 / 窗口保持原配置。
+- **任务重命名迁移**：`Update` 替换成功后 safeName 变化时，重命名 state 文件到新键并 `CleanStale` 清理旧锁（无存活持有者才删）；`ReplaceAll` 全量替换语义不迁移。
 - **重试**：纯控制流 `Retry` 指数退避，装饰器仅覆盖网络方法。
 - **追加式 .gitignore**：仅追加缺失条目，绝不覆盖用户既有配置。
 - **配置宽松加载**：`LoadLenient` 跳过 repo_dir 存在性校验，供 status / install 在仓库未就绪时使用。

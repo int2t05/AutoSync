@@ -257,6 +257,50 @@ func TestConfigStore_RepoDirUnique(t *testing.T) {
 	}
 }
 
+// TestConfigStore_Rename_MigratesState 验证重命名任务迁移 state 文件并清理旧锁文件。
+func TestConfigStore_Rename_MigratesState(t *testing.T) {
+	d1 := makeTempDir(t, "autosync-repo-*")
+	p := filepath.Join(makeTempDir(t, "autosync-cfg-*"), "autosync.conf.yaml")
+	store := configstore.NewStore(p)
+	if err := store.Add(mkTask("oldname", d1, "u")); err != nil {
+		t.Fatal(err)
+	}
+	// 旧任务已有 state 文件（模拟运行过）与陈旧锁文件
+	oldState := store.Get("oldname").ResolveStateFile()
+	if err := os.MkdirAll(filepath.Dir(oldState), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldState, []byte("{\"paused\":true}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldLock := store.Get("oldname").ResolveLockFile()
+	if err := os.MkdirAll(filepath.Dir(oldLock), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// 陈旧锁：极大 PID（不可能存活），CleanStale 应清理
+	if err := os.WriteFile(oldLock, []byte("999999999\n2010-01-01T00:00:00Z\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Update("oldname", mkTask("newname", d1, "u2")); err != nil {
+		t.Fatalf("Update 重命名: %v", err)
+	}
+	if _, err := os.Stat(oldState); !os.IsNotExist(err) {
+		t.Errorf("旧 state 文件应迁移走: %v", err)
+	}
+	newState := store.Get("newname").ResolveStateFile()
+	data, err := os.ReadFile(newState)
+	if err != nil {
+		t.Fatalf("新 state 文件应存在: %v", err)
+	}
+	if !strings.Contains(string(data), "paused") {
+		t.Errorf("state 内容应保留: %s", data)
+	}
+	if _, err := os.Stat(oldLock); !os.IsNotExist(err) {
+		t.Errorf("旧锁文件应被清理: %v", err)
+	}
+}
+
 // TestConfigStore_SafeNameCollision 验证四入口按 safeName 判重（"a b" 与 "a_b" 冲突）。
 func TestConfigStore_SafeNameCollision(t *testing.T) {
 	d1, d2 := twoRepoDirs(t)

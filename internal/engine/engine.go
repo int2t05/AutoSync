@@ -136,16 +136,19 @@ func (e *Engine) writeSyncResult(id int, task string, res sync.SyncResult) {
 }
 
 // saveConfig 把 IPC 任务 DTO 转为 configstore.Task，ReplaceAll + Save + 后台热重载调度器。
+// 落盘失败时回滚内存态（调度器未 Reload，仍跑旧任务），壳收到 error 后保持配置窗口原状。
 // Reload 异步执行（Stop 有界），故响应快照取自新任务列表而非 runners（后者尚未重建）。
 func (e *Engine) saveConfig(dtos []*TaskDTO) ([]TaskStatus, []*TaskDTO, error) {
 	tasks := make([]*configstore.Task, 0, len(dtos))
 	for _, d := range dtos {
 		tasks = append(tasks, dtoToTask(d))
 	}
+	old := e.store.List()
 	if err := e.store.ReplaceAll(tasks); err != nil {
 		return nil, nil, err
 	}
 	if err := e.store.Save(); err != nil {
+		_ = e.store.ReplaceAll(old) // 回滚内存态；old 曾通过校验，回滚必成功
 		return nil, nil, err
 	}
 	e.sched.Reload(tasks, nil)

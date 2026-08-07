@@ -174,11 +174,12 @@ func (a *TrayApp) buildConfigContent() fyne.CanvasObject {
 			if !ok {
 				return
 			}
+			old := a.store.List() // 删除前快照，Save 失败时回滚内存态
 			if err := a.store.Delete(name); err != nil {
 				dialog.ShowError(err, a.win)
 				return
 			}
-			a.persistAndReload()
+			a.persistAndReload(old)
 			list.UnselectAll()
 			selected = -1
 			list.Refresh()
@@ -232,6 +233,7 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, select
 		t.Branch = branchEntry.Text
 		t.Interval = intervalEntry.Text
 		t.ConflictStrategy = strategySelect.Selected
+		old := a.store.List() // 变更前快照，Save 失败时回滚内存态
 		var err error
 		if existing == nil {
 			err = a.store.Add(t)
@@ -242,7 +244,7 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, select
 			dialog.ShowError(err, a.win)
 			return
 		}
-		a.persistAndReload()
+		a.persistAndReload(old)
 		*selected = -1
 		list.UnselectAll()
 		list.Refresh()
@@ -252,8 +254,10 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, select
 }
 
 // persistAndReload 保存配置并后台热重载调度器；完成回调经 fyne.Do 回到主线程刷新托盘菜单。
-func (a *TrayApp) persistAndReload() {
+// old 为变更前的任务快照：Save 失败时回滚内存态并报错，调度器保持旧任务（列表刷新由调用方负责）。
+func (a *TrayApp) persistAndReload(old []*configstore.Task) {
 	if err := a.store.Save(); err != nil {
+		_ = a.store.ReplaceAll(old) // 回滚内存态；old 曾通过校验，回滚必成功
 		dialog.ShowError(err, a.win)
 		return
 	}
