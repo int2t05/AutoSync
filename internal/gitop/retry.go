@@ -53,6 +53,13 @@ func (r *retryGit) Fetch(remote string) error {
 	return r.retry(func() error { return r.GitOperator.Fetch(remote) })
 }
 
+// PullRebase 拉取并重放远程变更（网络）——重试。
+// 真冲突时 pull --rebase 失败并留下 rebase 状态，后续重试立即报错，调用方（syncer）经
+// RebaseInProgress 检测后中止并按冲突策略处理，不因重试放大或破坏冲突处理。
+func (r *retryGit) PullRebase(remote, branch string) error {
+	return r.retry(func() error { return r.GitOperator.PullRebase(remote, branch) })
+}
+
 // Push 推送（网络）——重试。
 func (r *retryGit) Push(remote, branch string) error {
 	return r.retry(func() error { return r.GitOperator.Push(remote, branch) })

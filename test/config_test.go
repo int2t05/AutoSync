@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"autosync/internal/config"
+	"autosync/internal/configstore"
 )
 
 // makeRepoDir 创建一个真实临时目录作为 repo_dir，测试结束自动清理。
@@ -43,17 +44,35 @@ func TestConfig_Normalize_AppliesDefaults(t *testing.T) {
 	if cfg.ConflictStrategy != "conflict_files" {
 		t.Errorf("策略默认 = %q, 期望 conflict_files", cfg.ConflictStrategy)
 	}
-	if cfg.BackupKeep != 10 {
-		t.Errorf("BackupKeep 默认 = %d, 期望 10", cfg.BackupKeep)
+	if cfg.BackupKeep == nil || *cfg.BackupKeep != 10 {
+		t.Errorf("BackupKeep 默认 = %v, 期望 10", cfg.BackupKeep)
 	}
-	if cfg.RetryCount != 3 {
-		t.Errorf("RetryCount 默认 = %d, 期望 3", cfg.RetryCount)
+	if cfg.RetryCount == nil || *cfg.RetryCount != 3 {
+		t.Errorf("RetryCount 默认 = %v, 期望 3", cfg.RetryCount)
 	}
 	if cfg.RetryBaseDelay != "1s" || cfg.RetryBaseDelayDur.Seconds() != 1 {
 		t.Errorf("RetryBaseDelay 默认 = %q / %v", cfg.RetryBaseDelay, cfg.RetryBaseDelayDur)
 	}
 	if len(cfg.Ignore) == 0 {
 		t.Errorf("Ignore 应有默认条目")
+	}
+}
+
+// TestConfig_ExplicitZero 验证 backup_keep/retry_count 显式设 0 不被默认值覆盖
+//（指针字段区分"未设置"与"显式 0"，此前 ==0 判定把 0 当成未设置）。
+func TestConfig_ExplicitZero(t *testing.T) {
+	d := makeRepoDir(t)
+	content := "tasks:\n  - name: 't'\n    repo_dir: '" + d + "'\n    remote_url: 'u'\n    backup_keep: 0\n    retry_count: 0\n"
+	store, err := configstore.Load(writeConfigFile(t, content))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	task := store.List()[0]
+	if task.BackupKeep == nil || *task.BackupKeep != 0 {
+		t.Errorf("backup_keep:0 应保留为显式 0, got %v", task.BackupKeep)
+	}
+	if task.RetryCount == nil || *task.RetryCount != 0 {
+		t.Errorf("retry_count:0 应保留为显式 0, got %v", task.RetryCount)
 	}
 }
 

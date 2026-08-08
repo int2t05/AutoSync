@@ -25,8 +25,8 @@
 
 ```bash
 # 构建（需 Go 1.26+ 与系统 git；托盘版需 CGO + gcc，用 -tags traygui）
-make build          # Windows 托盘版（单 exe，无控制台，双击出窗口）
-make build-cli      # 纯 Go CLI 版（无托盘，快速 / 跨平台）
+make build          # Windows 托盘版，仅限 Windows 目标（-H windowsgui 为 Windows linker 标志）
+make build-cli      # 纯 Go CLI 版（无托盘，快速 / 跨平台；产物 AutoSync-CLI[.exe] 按平台）
 
 # 双击 AutoSync.exe → 配置窗口增删任务 → 关闭即缩至托盘 → 后台定时同步
 autosync                       # 启动托盘守护（双击等同，弹窗口）

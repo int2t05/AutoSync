@@ -2,6 +2,8 @@
 // 锁文件用 O_CREATE|O_EXCL 创建并写入 PID + 进程启动时间：启动时间戳防 PID 复用误判——
 // 进程崩溃后 PID 被无关进程复用，仅查 PID 存活会误判"仍在持有"导致任务永久跳过。
 // 跨平台 pidAlive / processStartTime 见 pidalive_*.go。
+// 注意：锁仅单机语义——防止同一台机器上的并发同步；多设备同步同一远程时的竞争
+// 由 git 层保证（fetch+rebase 合并 / --force-with-lease 防覆盖），不做远程分布式锁。
 package lock
 
 import (
@@ -53,13 +55,21 @@ func (l *Locker) holderAlive(h holder) bool {
 }
 
 // tryCreate 用 O_EXCL 创建锁文件并写入当前 PID 与进程启动时间，成功返回 true。
+// 写入失败时删除刚创建的文件并返回 false：半写锁文件会被 readHolder 判损坏而误触发接管。
 func (l *Locker) tryCreate() bool {
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		return false
 	}
-	fmt.Fprintf(f, "%d\n%s\n", os.Getpid(), processStartTime(os.Getpid()).Format(time.RFC3339Nano))
-	f.Close()
+	if _, err := fmt.Fprintf(f, "%d\n%s\n", os.Getpid(), processStartTime(os.Getpid()).Format(time.RFC3339Nano)); err != nil {
+		f.Close()
+		os.Remove(l.path)
+		return false
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(l.path)
+		return false
+	}
 	return true
 }
 
@@ -99,6 +109,11 @@ func CleanStale(path string) {
 }
 
 // release 释放锁（删除锁文件）。
+// 先比对锁内持有者 PID：锁被接管（他进程持有）或损坏时不删除，防原持有者的迟到 release 误删新锁。
 func (l *Locker) release() {
+	h, ok := l.readHolder()
+	if !ok || h.pid != os.Getpid() {
+		return
+	}
 	os.Remove(l.path)
 }

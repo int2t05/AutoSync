@@ -61,9 +61,15 @@ func Enable(exePath, configPath string) error {
 	return nil
 }
 
-// Disable 停止并禁用 unit，删除 unit 文件后 daemon-reload。全程容忍 systemctl 不可用（无 systemd 环境）。
+// Disable 停止并禁用 unit，删除 unit 文件后 daemon-reload。
+// 仅当 systemctl 可用（存在 systemd）时执行服务操作，避免无 systemd 环境下无谓 spawn；
+// 服务操作错误容忍（unit 已禁用/不存在是正常的，文件删除才是权威清理，reload 失败非必需）。
 func Disable() error {
-	exec.Command("systemctl", "--user", "disable", "--now", unitName).Run() // 容忍已不存在 / 无 systemd
+	_, lookErr := exec.LookPath("systemctl")
+	hasSystemctl := lookErr == nil
+	if hasSystemctl {
+		exec.Command("systemctl", "--user", "disable", "--now", unitName).Run()
+	}
 	path, err := unitPath()
 	if err != nil {
 		return err
@@ -71,7 +77,9 @@ func Disable() error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	exec.Command("systemctl", "--user", "daemon-reload").Run() // 容忍失败：文件已删，reload 非必需
+	if hasSystemctl {
+		exec.Command("systemctl", "--user", "daemon-reload").Run()
+	}
 	return nil
 }
 

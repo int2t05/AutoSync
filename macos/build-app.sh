@@ -19,7 +19,9 @@ echo "=== 2. 构建 Go 引擎 universal 二进制（amd64 + arm64 + lipo）==="
   rm -f "$DIST/autosync-engine-amd64" "$DIST/autosync-engine-arm64" )
 
 echo "=== 3. 生成 Xcode 工程（xcodegen）==="
-( cd "$ROOT/macos" && xcodegen generate )
+# 版本号单一来源：internal/engine/engine.go 的 Version 常量，注入 project.yml 的 ${VERSION}
+VERSION="$(sed -n 's/^const Version = "\([0-9.]*\)"/\1/p' "$ROOT/internal/engine/engine.go")"
+( cd "$ROOT/macos" && VERSION="$VERSION" xcodegen generate )
 
 echo "=== 4. xcodebuild 构建 .app ===="
 xcodebuild -project "$ROOT/macos/AutoSync.xcodeproj" -scheme AutoSync \

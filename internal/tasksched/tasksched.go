@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	stdsync "sync"
+	"sync/atomic"
 	"time"
 
 	"autosync/internal/configstore"
@@ -22,16 +23,23 @@ import (
 type TaskRunner struct {
 	task     *configstore.Task
 	logger   *log.Logger
-	notifier notify.Notifier          // 通知投递（beeep 或 IPC 委托），依赖倒置
-	mu       stdsync.Mutex // 串行化同一任务的并发触发（tick + 手动）
-	pauseMu  stdsync.Mutex
-	paused   bool // 暂停标志：暂停时 ticker 跳过触发
+	notifier notify.Notifier // 通知投递（beeep 或 IPC 委托），依赖倒置
+	busy     atomic.Bool     // 同进程内是否正在同步：并发触发时跳过而非阻塞（防冗余再跑）
+	pauseMu  stdsync.RWMutex
+	paused   bool          // 暂停标志：暂停时 ticker 跳过触发
+	gen      *atomic.Uint64 // 所属调度器代次计数器（Reload 后旧 runner 的 Run 跳过）
+	born     uint64         // 本 runner 创建时代次
 }
 
-// NewTaskRunner 创建任务执行器，从 state 文件恢复暂停标志（热重载/重启后保持）。
-// notifier 注入通知投递；ticker 触发的结果回调由 TaskScheduler 持有。
+// NewTaskRunner 创建一次性任务执行器（CLI sync 用，无代次管理）。
+// notifier 注入通知投递；从 state 文件恢复暂停标志（热重载/重启后保持）。
 func NewTaskRunner(task *configstore.Task, logger *log.Logger, notifier notify.Notifier) *TaskRunner {
-	r := &TaskRunner{task: task, logger: logger, notifier: notifier}
+	return newTaskRunner(task, logger, notifier, nil, 0)
+}
+
+// newTaskRunner 创建任务执行器并绑定调度器代次（gen/born 由 TaskScheduler 注入）。
+func newTaskRunner(task *configstore.Task, logger *log.Logger, notifier notify.Notifier, gen *atomic.Uint64, born uint64) *TaskRunner {
+	r := &TaskRunner{task: task, logger: logger, notifier: notifier, gen: gen, born: born}
 	if st, err := state.New(task.ResolveStateFile()).Load(); err == nil {
 		r.paused = st.Paused
 	}
@@ -54,22 +62,32 @@ func (r *TaskRunner) SetPaused(p bool) {
 
 // Paused 返回任务是否暂停。
 func (r *TaskRunner) Paused() bool {
-	r.pauseMu.Lock()
-	defer r.pauseMu.Unlock()
+	r.pauseMu.RLock()
+	defer r.pauseMu.RUnlock()
 	return r.paused
 }
 
 // Run 执行一次同步：任务级锁 → .gitignore 维护 → Syncer → 写状态 → 通知。
-// 同任务已有实例持锁时跳过。返回同步结果。
+// 同任务已有实例（本进程 busy / 跨进程锁）时跳过。返回同步结果。
 func (r *TaskRunner) Run() sync.SyncResult {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// 代次校验：Reload 后旧 runner 的 Run 直接跳过，防手动同步跑到旧配置
+	if r.gen != nil && r.gen.Load() != r.born {
+		r.logger.Infof("任务 %s 配置已变更，跳过本次", r.task.Name)
+		return sync.SyncResult{Outcome: sync.OutcomeSkipped, Message: "配置已变更，跳过"}
+	}
+	// 同进程串行：并发触发（tick + 手动）时跳过本次，不阻塞等待后冗余再跑
+	if !r.busy.CompareAndSwap(false, true) {
+		r.logger.Infof("任务 %s 正在运行，跳过本次", r.task.Name)
+		return sync.SyncResult{Outcome: sync.OutcomeSkipped, Message: "正在运行，跳过"}
+	}
+	defer r.busy.Store(false)
 
 	// 任务级锁：跨进程防止同任务并发（如手动 CLI 与守护进程同时触发）
 	acquired, release := lock.New(r.task.ResolveLockFile()).Acquire()
 	if !acquired {
+		// 已有实例持锁：跳过而非"无变更"——不改写上次同步状态、不通知
 		r.logger.Infof("任务 %s 已有实例在运行，跳过", r.task.Name)
-		return sync.SyncResult{Outcome: sync.OutcomeNoChanges, Message: "已有实例在运行，跳过"}
+		return sync.SyncResult{Outcome: sync.OutcomeSkipped, Message: "已有实例在运行，跳过"}
 	}
 	defer release()
 
@@ -81,7 +99,7 @@ func (r *TaskRunner) Run() sync.SyncResult {
 	// 构造 git 操作器（execGit + 重试装饰器）并执行同步状态机
 	gitOp := gitop.NewRetryGit(
 		gitop.NewExecGit(r.task.RepoDir, r.logger, r.task.GitTimeoutDur),
-		r.task.RetryCount, r.task.RetryBaseDelayDur, r.logger,
+		*r.task.RetryCount, r.task.RetryBaseDelayDur, r.logger,
 	)
 	result := sync.NewSyncer(&r.task.Config, gitOp, r.logger).Run()
 
@@ -117,15 +135,17 @@ type TaskScheduler struct {
 	mu       stdsync.Mutex
 	running  bool
 	reloadMu stdsync.Mutex // 串行化并发 Reload（后台重建互不交错）
+	gen      atomic.Uint64 // Reload 递增，令旧 runner 的 Run 跳过
 }
 
 // NewTaskScheduler 为每个任务构造一个 TaskRunner，透传 notifier 与 onResult 给每个执行器。
 func NewTaskScheduler(tasks []*configstore.Task, logger *log.Logger, notifier notify.Notifier, onResult func(string, sync.SyncResult)) *TaskScheduler {
-	runners := make([]*TaskRunner, 0, len(tasks))
+	s := &TaskScheduler{logger: logger, notifier: notifier, onResult: onResult}
+	s.gen.Store(1)
 	for _, t := range tasks {
-		runners = append(runners, NewTaskRunner(t, logger, notifier))
+		s.runners = append(s.runners, newTaskRunner(t, logger, notifier, &s.gen, s.gen.Load()))
 	}
-	return &TaskScheduler{runners: runners, logger: logger, notifier: notifier, onResult: onResult}
+	return s
 }
 
 // Runners 返回全部任务执行器的副本（供托盘菜单构造，避免与 Reload 并发读写）。
@@ -212,11 +232,13 @@ func (s *TaskScheduler) SetPaused(name string, paused bool) error {
 }
 
 // runnerByName 在锁内按名查找执行器，未找到返回 nil。
+// 查找键与判重键统一（safeName 规范化）：任务名 "a b" 可经 "a b" 或 "a_b" 两种写法命中。
 func (s *TaskScheduler) runnerByName(name string) *TaskRunner {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	key := configstore.NormalizeName(name)
 	for _, r := range s.runners {
-		if r.task.Name == name {
+		if configstore.NormalizeName(r.task.Name) == key {
 			return r
 		}
 	}
@@ -239,9 +261,10 @@ func (s *TaskScheduler) Reload(tasks []*configstore.Task, onDone func()) {
 		s.reloadMu.Lock()
 		defer s.reloadMu.Unlock()
 		s.Stop()
+		s.gen.Add(1) // 递增代次：进行中/排队的手动 Run 命中旧 runner 时跳过
 		runners := make([]*TaskRunner, 0, len(tasks))
 		for _, t := range tasks {
-			runners = append(runners, NewTaskRunner(t, s.logger, s.notifier))
+			runners = append(runners, newTaskRunner(t, s.logger, s.notifier, &s.gen, s.gen.Load()))
 		}
 		s.mu.Lock()
 		s.runners = runners

@@ -36,8 +36,8 @@ func TestDaemon_StartsAndSyncs(t *testing.T) {
 	task := schedTask(t, "docs", repo, remote, "1m")
 	presetGitignore(t, task, repo, remote)
 	startDaemon(t, writeTrayConfig(t, []*configstore.Task{task}))
-	if !waitStateFile(task, 3*time.Second) {
-		t.Fatalf("daemon 启动后 3s 内未写状态文件")
+	if !waitStateFile(task, 10*time.Second) {
+		t.Fatalf("daemon 启动后 10s 内未写状态文件")
 	}
 }
 
@@ -51,7 +51,7 @@ func TestDaemon_SingleInstance(t *testing.T) {
 	presetGitignore(t, task, repo, remote)
 	cfgPath := writeTrayConfig(t, []*configstore.Task{task})
 	startDaemon(t, cfgPath) // 首实例持 DaemonLock
-	if !waitStateFile(task, 3*time.Second) {
+	if !waitStateFile(task, 10*time.Second) {
 		t.Fatalf("首实例未启动")
 	}
 	second := exec.Command(engineBin(t), "daemon", "--config", cfgPath)

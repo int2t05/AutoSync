@@ -2,7 +2,7 @@
 
 ## 安装
 
-1. 下载 `AutoSync-1.2.0.dmg`，双击挂载。
+1. 下载 `AutoSync-<版本号>.dmg`（版本号与 `autosync --version` 一致），双击挂载。
 2. 把 `AutoSync.app` 拖到「应用程序」。
 3. 首次启动需剥离隔离属性（当前未签名分发）：
    ```bash
@@ -23,7 +23,7 @@
 
 1. 菜单栏图标 → 退出 AutoSync。
 2. 删除 `/Applications/AutoSync.app`。
-3. （可选）删除数据目录：`rm -rf ~/Library/Application\ Support/AutoSync`。
+3. （可选）删除数据目录（配置/日志/状态）：`rm -rf ~/.autosync`。
 
 ## 系统要求
 

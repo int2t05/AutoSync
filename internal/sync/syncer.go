@@ -153,7 +153,9 @@ func (s *Syncer) Run() SyncResult {
 			}
 			if rebase {
 				s.logger.Warn("Rebase 冲突，中止 rebase 并按策略处理...")
-				s.git.RebaseAbort()
+				if err := s.git.RebaseAbort(); err != nil {
+					return s.fail("中止 rebase 失败", err)
+				}
 				return s.handleConflict()
 			}
 			return s.fail("rebase 合并失败", err)
@@ -241,7 +243,17 @@ func (s *Syncer) conflictFiles(timestamp string) SyncResult {
 	}
 	var copies []localCopy
 	for _, rel := range files {
-		data, err := os.ReadFile(filepath.Join(s.cfg.RepoDir, rel))
+		full := filepath.Join(s.cfg.RepoDir, rel)
+		info, err := os.Stat(full)
+		if err != nil {
+			s.logger.Warnf("读取本地文件 %s 失败，跳过: %v", rel, err)
+			continue
+		}
+		if info.Size() > maxConflictCopySize {
+			s.logger.Warnf("本地文件 %s 超上限（%d 字节），跳过保留为副本", rel, info.Size())
+			continue
+		}
+		data, err := os.ReadFile(full)
 		if err != nil {
 			s.logger.Warnf("读取本地文件 %s 失败，跳过: %v", rel, err)
 			continue
@@ -291,6 +303,10 @@ func (s *Syncer) conflictFiles(timestamp string) SyncResult {
 	}
 }
 
+// maxConflictCopySize 是 conflict_files 单文件保留为副本的上限（字节）。
+// 超出上限的文件跳过保留——整文件载入内存，超大文件会 OOM。
+const maxConflictCopySize = 512 << 20
+
 // conflictCopyName 将 path 转为冲突副本名：file.ext → file.sync-conflict-<timestamp>.ext
 // 点文件（如 .gitignore）整体作名：.gitignore → .gitignore.sync-conflict-<timestamp>
 func conflictCopyName(path, timestamp string) string {
@@ -317,11 +333,11 @@ func (s *Syncer) cleanupBackups() {
 		s.logger.Warn("列出备份分支失败: " + err.Error())
 		return
 	}
-	if len(branches) <= s.cfg.BackupKeep {
+	if len(branches) <= *s.cfg.BackupKeep {
 		return
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(branches)))
-	for _, b := range branches[s.cfg.BackupKeep:] {
+	for _, b := range branches[*s.cfg.BackupKeep:] {
 		s.logger.Info("清理旧备份分支: " + b)
 		if err := s.git.DeleteLocalBranch(b); err != nil {
 			s.logger.Warn("删除本地分支 " + b + " 失败: " + err.Error())

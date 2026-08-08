@@ -15,6 +15,7 @@ flowchart TD
   VERIFY -->|否| FAILC([Failed 配置不一致])
   VERIFY -->|是| HASHEAD{有 HEAD 提交?}
   HASHEAD -->|否| FETCH2[fetch --prune]
+  FETCH2 -->|失败 远程不可达| NOC0([NoChanges 降级下次重试])
   FETCH2 --> EXIST2{远程分支存在?}
   EXIST2 -->|是| CO[checkout -B 对齐远程]
   CO --> ADD
@@ -26,6 +27,7 @@ flowchart TD
   CHG -->|否| NOCOMMIT[跳过提交]
   COMMIT --> FETCH[fetch --prune]
   NOCOMMIT --> FETCH
+  FETCH -->|失败 远程不可达| NOC0
   FETCH --> EXIST{远程分支存在?}
   EXIST -->|否| PUSHDIRECT[push 新建远程分支]
   PUSHDIRECT --> DONE2([Pushed])
@@ -53,7 +55,7 @@ flowchart TD
 2. **校验**：`git remote get-url <remote>` 与配置 `remote_url` 归一化比对（忽略协议/用户信息/尾部 `.git`）、`git branch --show-current` 与配置 `branch` 比对；不一致直接 Failed（配置错误不再静默失效，也拒绝在无关远程/分支上写操作）。
 3. **初始化**：`git init -b <branch>` → `remote add` → `add -A` → `commit --allow-empty` → `push -u`。仓库已存在但无 HEAD 提交（手动 `git init` 的空仓库）：fetch 后远程分支存在则 `checkout -B` 对齐，否则 `commit --allow-empty` + `push -u` 首推。
 4. **提交**：`git add -A` → `git status --porcelain` 判变更 → `git commit -m "<模板>"`。
-5. **拉取引用**：`git fetch --prune <remote>`（重试装饰器包裹），prune 清除远端已删除分支的陈旧跟踪引用。
+5. **拉取引用**：`git fetch --prune <remote>`（重试装饰器包裹），prune 清除远端已删除分支的陈旧跟踪引用。fetch 失败（网络/远程不可达）降级为 NoChanges"远程暂不可达，下次重试"，不报 Failed 触发错误通知（网络抖动静默处理）。
 6. **关系判定**：`rev-parse HEAD` 与 `<remote>/<branch>` 比较；不等则 `merge-base` 定四态。
 7. **合并**：`git pull --rebase <remote> <branch>`；失败时检测 rebase 是否进行中（rebase-merge/rebase-apply 目录存在）：真冲突才 `git rebase --abort` 转冲突处理；网络 / 钩子等其他失败直接 Failed（绝不 reset --hard 销毁本地已提交工作）。
 8. **推送**：`git push` 或 `git push --force-with-lease`（重试包裹）。
@@ -81,7 +83,7 @@ flowchart TD
 
 - **local_wins**：`git branch backup/remote-<ts> <remote>/<branch>` → `git push <remote> backup/remote-<ts>` → `git push --force-with-lease <remote> <branch>` → 列 `backup/remote-*` 按名降序留最新 `backup_keep` 个，余下本地 `-D` + 远程 `--delete`。远程旧版本保存在备份分支可 checkout 恢复。
 - **remote_wins**：`git reset --hard <remote>/<branch>` → `git clean -fd`。本地未推送改动丢弃。
-- **conflict_files**：`git diff --name-only --diff-filter=AMD HEAD <remote>/<branch>` 列差异文件（A 本地独有 / M 修改 / D 删除）→ `os.ReadFile` 读本地版到内存 → `git reset --hard <remote>/<branch>` + `git clean -fd`（副本未写入，不受影响）→ 写 `<file>.sync-conflict-<ts>.<ext>` 副本 → `git add -A` + `commit` + `push`。本地版以副本入 git 同步所有设备，远程版为主文件。
+- **conflict_files**：`git diff --name-only -z --diff-filter=DM HEAD <remote>/<branch>` 列差异文件（M 双端不同 / D 本地独有或远程已删，二者本地均有内容可保留；A 为远程独有，本地无版本可保留故排除）→ `os.ReadFile` 读本地版到内存 → `git reset --hard <remote>/<branch>` + `git clean -fd`（副本未写入，不受影响）→ 写 `<file>.sync-conflict-<ts>.<ext>` 副本 → `git add -A` + `commit` + `push`。本地版以副本入 git 同步所有设备，远程版为主文件。
 
 ## dry-run
 

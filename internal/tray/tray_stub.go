@@ -17,6 +17,9 @@ import (
 // ErrTrayDisabled 表示当前构建未启用托盘（需 -tags traygui 且 Windows）。
 var ErrTrayDisabled = errors.New("托盘模式未启用（需 -tags traygui 构建）")
 
+// Supported 返回当前构建是否支持托盘（桩构建恒 false，供 install 校验 Windows 自启可用性）。
+func Supported() bool { return false }
+
 // TrayApp 托盘应用（桩）。
 type TrayApp struct{}
 

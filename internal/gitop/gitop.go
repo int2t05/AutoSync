@@ -70,7 +70,7 @@ type GitOperator interface {
 	DeleteLocalBranch(branchName string) error                    // 删除本地分支
 	ListBackupBranches(remote string) ([]string, error)           // 列出 backup/remote-*（本地+远程去重）
 	ResetHardToRemote(remote, branch string) error                // reset --hard + clean -fd
-	DiffNameOnly(remote, branch string) ([]string, error)         // 本地 HEAD 与 remote/branch 的差异文件（Added + Modified + Deleted）
+	DiffNameOnly(remote, branch string) ([]string, error)         // 本地 HEAD 与 remote/branch 中本地有内容的差异文件（Modified + Deleted，排除远程独有的 Added），供冲突副本保留
 }
 
 // execGit 通过 shell out 调用系统 git 实现 GitOperator。
@@ -118,24 +118,46 @@ func (g *execGit) exec(args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	outPath := f.Name()
-	defer os.Remove(outPath) // 超时挂起时孙子进程可能仍持句柄，删除失败可忽略
 	cmd.Stdout = f
 	cmd.Stderr = f
 
 	if err := cmd.Start(); err != nil {
 		f.Close()
+		removeOutputFile(outPath)
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	err = cmd.Wait() // 仅等进程句柄：超时由 CommandContext 终止
 	f.Close()
-	data, _ := os.ReadFile(outPath)
+	data, rerr := os.ReadFile(outPath)
+	removeOutputFile(outPath)
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
 	}
 	if err != nil {
 		return string(data), fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
+	if rerr != nil {
+		// 命令成功但读输出失败（罕见）：显式报错，不吞读错误返回空数据
+		return "", fmt.Errorf("git %s: 读取输出失败: %w", strings.Join(args, " "), rerr)
+	}
 	return string(data), nil
+}
+
+// removeOutputFile 删除 git 输出临时文件。
+// 超时挂起时孙子进程（hook/ssh）可能仍持句柄，Windows 删除打开文件失败；此时异步延迟重试
+// 删除（进程存续期内清理），避免永久泄漏系统 tmp。正常路径删除即成功，不产生额外开销。
+func removeOutputFile(path string) {
+	if err := os.Remove(path); err == nil || os.IsNotExist(err) {
+		return
+	}
+	go func(p string) {
+		for i := 0; i < 5; i++ { // 每分钟重试，最长 5 分钟；超过仍持句柄则放弃（罕见）
+			time.Sleep(time.Minute)
+			if os.Remove(p) == nil {
+				return
+			}
+		}
+	}(path)
 }
 
 // IsRepo 通过 .git 存在判断是否已是 git 仓库。
@@ -149,7 +171,7 @@ func (g *execGit) IsRepo() bool {
 func (g *execGit) Init(remote, remoteURL, branch string) error {
 	steps := [][]string{
 		{"init", "-b", branch},
-		{"remote", "add", remote, remoteURL},
+		{"remote", "add", remote, "--", remoteURL}, // -- 终止选项解析，防 remoteURL 以 - 开头被当选项
 		{"add", "-A"},
 		{"commit", "--allow-empty", "-m", "init: first sync"},
 		{"push", "-u", remote, branch},
@@ -163,9 +185,15 @@ func (g *execGit) Init(remote, remoteURL, branch string) error {
 }
 
 // HasHead 判断仓库是否有 HEAD 提交；无 HEAD（手动 git init 的空仓库，unborn 分支）返回 false。
+// 仅 unborn（git 报 "Needed a single revision"）视为无提交；其他失败（仓库损坏等）返回 error，
+// 避免把损坏仓库误当空仓库去对齐远程。
 func (g *execGit) HasHead() (bool, error) {
-	if _, err := g.exec("rev-parse", "--verify", "HEAD"); err != nil {
-		return false, nil // unborn HEAD，非错误
+	out, err := g.exec("rev-parse", "--verify", "HEAD")
+	if err != nil {
+		if strings.Contains(strings.ToLower(out), "needed a single revision") {
+			return false, nil
+		}
+		return false, err
 	}
 	return true, nil
 }
@@ -290,10 +318,10 @@ func (g *execGit) RebaseInProgress() (bool, error) {
 }
 
 // RebaseAbort 中止进行中的 rebase，恢复到 rebase 前状态。
-// 可能没有进行中的 rebase（如 pull 因非冲突原因失败），此时报错可忽略。
+// 调用方仅在 RebaseInProgress 确认为真时调用；abort 失败会残留 rebase 状态，须上报而非吞错。
 func (g *execGit) RebaseAbort() error {
-	_, _ = g.exec("rebase", "--abort") // 忽略输出与错误
-	return nil
+	_, err := g.exec("rebase", "--abort")
+	return err
 }
 
 // Push 推送本地分支到远程。
@@ -371,18 +399,19 @@ func (g *execGit) ResetHardToRemote(remote, branch string) error {
 	return err
 }
 
-// DiffNameOnly 列出本地 HEAD 与 remote/branch 的差异文件（Added + Modified + Deleted）。
-// 供 conflict_files 策略读取需保留为副本的本地文件：Added 是本地独有文件，
-// 不含它将随 reset --hard + clean -fd 被静默删除。
+// DiffNameOnly 列出本地 HEAD 与 remote/branch 的差异文件（Modified + Deleted）。
+// 供 conflict_files 策略读取需保留为副本的本地文件：Modified 双端不同、Deleted 本地独有，
+// 二者本地均存在可读；Added 是远程独有（本地无版本可保留），排除之。
+// -z 以 NUL 分隔，文件名含任意字符（含非 ASCII）不被 core.quotePath 八进制转义。
 func (g *execGit) DiffNameOnly(remote, branch string) ([]string, error) {
-	out, err := g.run("diff", "--name-only", "--diff-filter=AMD", "HEAD", remote+"/"+branch)
+	out, err := g.run("diff", "--name-only", "-z", "--diff-filter=DM", "HEAD", remote+"/"+branch)
 	if err != nil {
 		return nil, err
 	}
 	var files []string
-	for _, line := range strings.Split(out, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			files = append(files, line)
+	for _, f := range strings.Split(out, "\x00") {
+		if f != "" {
+			files = append(files, f)
 		}
 	}
 	return files, nil
@@ -391,20 +420,26 @@ func (g *execGit) DiffNameOnly(remote, branch string) ([]string, error) {
 // NormalizeRemoteURL 把远程 URL 归一化为可比较的 host[:port]/path 形式。
 // 用于核对配置 remote_url 与仓库实际远程是否一致：忽略尾部 .git、协议（ssh/https/file）、
 // 用户信息（git@）与 scp 简写（git@host:path ↔ https://host/path）的差异。
+// 带 scheme 的 URL 中的 host:port 是端口，保留原样；仅无 scheme 的 scp 简写才把冒号转路径分隔。
 func NormalizeRemoteURL(url string) string {
 	u := strings.TrimSpace(url)
 	u = strings.TrimSuffix(u, "/")
 	u = strings.TrimSuffix(u, ".git")
 	u = strings.TrimSuffix(u, "/")
+	hadScheme := false
 	if i := strings.Index(u, "://"); i >= 0 {
 		u = u[i+3:]
+		hadScheme = true
 	}
 	if i := strings.LastIndex(u, "@"); i >= 0 {
 		u = u[i+1:]
 	}
-	// scp 简写 host:path → host/path；Windows 盘符（C:\）后的冒号跳过
-	if i := strings.Index(u, ":"); i >= 0 && !strings.HasPrefix(u[i+1:], "/") && !strings.HasPrefix(u[i+1:], "\\") {
-		u = u[:i] + "/" + u[i+1:]
+	// scp 简写 host:path → host/path；Windows 盘符（C:\）后的冒号跳过。
+	// 有 scheme 时 host:port 是端口非路径分隔，不转换（否则 ssh://host:2222/path 被误拼成 host/2222/path）。
+	if !hadScheme {
+		if i := strings.Index(u, ":"); i >= 0 && !strings.HasPrefix(u[i+1:], "/") && !strings.HasPrefix(u[i+1:], "\\") {
+			u = u[:i] + "/" + u[i+1:]
+		}
 	}
 	if i := strings.Index(u, "/"); i >= 0 {
 		return strings.ToLower(u[:i]) + u[i:]
@@ -412,11 +447,13 @@ func NormalizeRemoteURL(url string) string {
 	return strings.ToLower(u)
 }
 
-// truncate 截断字符串到最大长度，便于日志输出。
+// truncate 截断字符串到最大 rune 数，便于日志输出。
+// 按 rune 边界截断（[]rune 切片），避免按字节切断多字节 UTF-8 序列产生乱码。
 func truncate(s string, maxLen int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) > maxLen {
-		return s[:maxLen] + "..."
+	r := []rune(s)
+	if len(r) > maxLen {
+		return string(r[:maxLen]) + "..."
 	}
 	return s
 }

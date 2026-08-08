@@ -2,6 +2,8 @@
 # 用法：make test | make build | make build-all | make package-linux | make vet
 
 GO ?= go
+GOOS ?= $(shell $(GO) env GOOS)
+EXE := $(if $(filter windows,$(GOOS)),.exe,)
 
 .PHONY: test test-race vet fmt tidy build build-cli build-all icons build-macos-engine build-macos-app build-macos-dmg package-linux clean
 
@@ -24,12 +26,14 @@ tidy:
 
 # 构建 Windows 托盘版（单 exe，无控制台；-tags traygui 启用 Fyne 托盘，需 CGO + gcc）
 # 双击出配置窗口、可关闭至托盘；-H windowsgui 去掉 cmd 黑窗。
+# 仅限 Windows 目标：-H windowsgui 为 Windows linker 标志，非 Windows 报错。
 build:
+	@if [ "$(GOOS)" != "windows" ]; then echo "❌ build 目标仅限 Windows（-H windowsgui 为 Windows linker 标志）"; exit 1; fi
 	$(GO) build -tags traygui -ldflags="-s -w -H windowsgui" -o AutoSync.exe ./cmd/autosync
 
-# 构建 Windows CLI 版（无托盘，纯 Go，快速，供开发/脚本/CI）
+# 构建 CLI 版（无托盘，纯 Go，快速，供开发/脚本/CI；产物按目标平台加 .exe 后缀）
 build-cli:
-	$(GO) build -o AutoSync-CLI.exe ./cmd/autosync
+	$(GO) build -o AutoSync-CLI$(EXE) ./cmd/autosync
 
 # 三平台编译：Windows 托盘 exe（根目录）+ macOS/Linux 引擎（dist/，amd64/arm64）
 # macOS 引擎纯 Go 可交叉编译；universal 二进制合并需 macOS 主机 lipo（build-macos-engine）
@@ -73,5 +77,5 @@ package-linux:
 	rm -rf dist/autosync-linux-amd64 dist/autosync-linux-arm64
 
 clean:
-	rm -f AutoSync.exe AutoSync-CLI.exe
+	rm -f AutoSync.exe AutoSync-CLI AutoSync-CLI.exe
 	rm -rf dist

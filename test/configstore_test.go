@@ -335,6 +335,24 @@ func TestConfigStore_SafeNameCollision(t *testing.T) {
 	}
 }
 
+// TestConfigStore_GetBySafeName 验证 Get/NormalizeName 按 safeName 统一查找：
+// 任务名含空格/特殊字符（"a b"→safeName a_b）可经 "a b" 或 "a_b" 两种写法命中。
+func TestConfigStore_GetBySafeName(t *testing.T) {
+	d1, _ := twoRepoDirs(t)
+	store := configstore.NewStore(filepath.Join(makeTempDir(t, "autosync-cfg-*"), "autosync.conf.yaml"))
+	if err := store.Add(mkTask("a b", d1, "u")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if configstore.NormalizeName("a b") != "a_b" {
+		t.Fatalf("NormalizeName(a b) = %q, 期望 a_b", configstore.NormalizeName("a b"))
+	}
+	for _, key := range []string{"a b", "a_b"} {
+		if got := store.Get(key); got == nil || got.Name != "a b" {
+			t.Errorf("Get(%q) 应按 safeName 命中任务, got %+v", key, got)
+		}
+	}
+}
+
 // TestConfigStore_LoadLenient 验证 LoadLenient 跳过 repo_dir 存在性校验（status 场景）。
 func TestConfigStore_LoadLenient(t *testing.T) {
 	missing := filepath.Join(makeTempDir(t, "autosync-repo-*"), "missing")

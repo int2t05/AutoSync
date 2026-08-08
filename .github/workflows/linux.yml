@@ -28,15 +28,17 @@ jobs:
       - name: arm64 交叉编译验证
         run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/autosync
 
-      - name: 打包 tarball（amd64）
+      - name: 打包 tarball（amd64 + arm64，对齐 Makefile package-linux）
         run: |
-          mkdir -p dist/autosync-linux-amd64
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/autosync-linux-amd64/autosync ./cmd/autosync
-          cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/autosync-linux-amd64/
-          tar -czf dist/autosync-linux-amd64.tar.gz -C dist autosync-linux-amd64
+          for arch in amd64 arm64; do
+            mkdir -p dist/autosync-linux-${arch}
+            GOOS=linux GOARCH=${arch} CGO_ENABLED=0 go build -o dist/autosync-linux-${arch}/autosync ./cmd/autosync
+            cp autosync.conf.example.yaml scripts/install-linux.sh scripts/README-install-linux.md dist/autosync-linux-${arch}/
+            tar -czf dist/autosync-linux-${arch}.tar.gz -C dist autosync-linux-${arch}
+          done
 
       - name: 上传 tarball
         uses: actions/upload-artifact@v4
         with:
-          name: autosync-linux-amd64
-          path: dist/autosync-linux-amd64.tar.gz
+          name: autosync-linux
+          path: dist/autosync-linux-*.tar.gz

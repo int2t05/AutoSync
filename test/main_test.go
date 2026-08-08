@@ -4,12 +4,15 @@ package tests
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"autosync/internal/config"
 )
 
-// TestMain 在所有测试前设置 git 提交身份与隔离数据目录。
+// TestMain 在所有测试前设置 git 提交身份与隔离数据目录，并构建 engine 子进程测试用二进制。
 // AUTOSYNC_DATA_DIR 指向临时目录，使 TaskRunner 写 state/lock 不落真实 home。
 func TestMain(m *testing.M) {
 	os.Setenv("GIT_AUTHOR_NAME", "AutoSyncTest")
@@ -26,7 +29,44 @@ func TestMain(m *testing.M) {
 		panic("EnsureUserDataDirs 失败: " + err.Error())
 	}
 
+	buildEngineBinary()
+
 	code := m.Run()
 	os.RemoveAll(dataDir)
+	if engineBinPath != "" {
+		os.RemoveAll(filepath.Dir(engineBinPath))
+	}
 	os.Exit(code)
+}
+
+// buildEngineBinary 把 autosync 构建到临时目录，供 engine 子进程测试复用；包结束清理。
+// 构建失败仅记录 engineBinErr，engine 测试据此 skip（如缺 go 工具链），不影响其他测试。
+func buildEngineBinary() {
+	dir, err := os.MkdirTemp("", "autosync-engine-*")
+	if err != nil {
+		engineBinErr = err
+		return
+	}
+	name := "autosync-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	engineBinPath = filepath.Join(dir, name)
+	// go test 的 cwd 为 test/，仓库根是其父目录
+	cmd := exec.Command("go", "build", "-o", engineBinPath, "./cmd/autosync")
+	cmd.Dir = ".."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		engineBinErr = &buildError{cmd: "go build", err: err, out: out}
+	}
+}
+
+// buildError 包装构建失败信息，供 engineBin skip 时展示。
+type buildError struct {
+	cmd string
+	err error
+	out []byte
+}
+
+func (e *buildError) Error() string {
+	return e.cmd + ": " + e.err.Error() + "\n" + string(e.out)
 }

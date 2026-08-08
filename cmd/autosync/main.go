@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"autosync/internal/autostart"
 	"autosync/internal/config"
 	"autosync/internal/configstore"
+	"autosync/internal/engine"
 	"autosync/internal/gitop"
 	"autosync/internal/lock"
 	"autosync/internal/log"
@@ -27,7 +29,18 @@ func main() {
 }
 
 // run 解析子命令并分发，返回退出码。无子命令时按平台分流（windows→tray / darwin→engine / linux→daemon）。
+// 帮助与版本标志（-h/--help/-v/--version）在任何子命令之前识别，避免落入平台默认守护。
 func run(args []string) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "-h", "--help":
+			printUsage()
+			return 0
+		case "-v", "--version":
+			fmt.Printf("AutoSync %s\n", engine.Version)
+			return 0
+		}
+	}
 	cmd, rest := parseCommand(args)
 	switch cmd {
 	case "sync":
@@ -60,6 +73,25 @@ func parseCommand(args []string) (cmd string, rest []string) {
 	return "", args
 }
 
+// printUsage 输出命令行用法。
+func printUsage() {
+	fmt.Print(`AutoSync — 基于系统 git 的多文件夹双向同步工具
+
+用法:
+  autosync                    托盘守护（Windows）/ engine（macOS）/ daemon（Linux）
+  autosync sync [任务]        立即同步指定任务（唯一任务可省略）
+  autosync status [任务]      查看任务同步状态
+  autosync install            设置开机自启
+  autosync uninstall          移除开机自启
+  autosync -h, --help         显示帮助
+  autosync -v, --version      显示版本
+
+常用选项:
+  --config <路径>      指定多任务配置文件（默认 ~/.autosync/autosync.conf.yaml）
+  sync --dry-run       只读预览同步计划，不实际执行
+`)
+}
+
 // runSync 执行单次同步：载入多任务配置 → 解析目标任务 → 复用 TaskRunner 编排（任务锁/.gitignore/Syncer/状态/通知）。
 // 支持 `sync [task]`：指定任务名，或仅配置一个任务时省略；--dry-run 只读预览，不联网、不写盘、不加锁。
 func runSync(rest []string) int {
@@ -82,12 +114,14 @@ func runSync(rest []string) int {
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		return 1
 	}
+	// 按任务 ShowConsole 配置决定是否输出到控制台（CLI sync 复用 daemon 级日志器）
+	logger.SetConsole(task.ShowConsole)
 
 	// --dry-run：只读分析，不联网、不写盘、不加锁
 	if *dryRun {
 		gitOp := gitop.NewRetryGit(
 			gitop.NewExecGit(task.RepoDir, logger, task.GitTimeoutDur),
-			task.RetryCount, task.RetryBaseDelayDur, logger,
+			*task.RetryCount, task.RetryBaseDelayDur, logger,
 		)
 		plan := sync.NewSyncer(&task.Config, gitOp, logger).DryRun()
 		fmt.Println("AutoSync 同步计划（dry-run，不实际执行）")
@@ -204,6 +238,12 @@ func runInstall(rest []string) int {
 	fs := flag.NewFlagSet("autosync install", flag.ContinueOnError)
 	configPath := fs.String("config", "", "托盘配置文件路径（默认 autosync.conf.yaml）")
 	if err := fs.Parse(rest); err != nil {
+		return 1
+	}
+
+	// Windows 自启运行 "tray --background"：校验当前构建支持托盘，防止 build-cli（桩）写坏自启项
+	if runtime.GOOS == "windows" && !tray.Supported() {
+		fmt.Fprintln(os.Stderr, "❌ 当前构建未启用托盘（需 -tags traygui 构建），无法设置 Windows 自启")
 		return 1
 	}
 

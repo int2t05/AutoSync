@@ -50,5 +50,11 @@ func runDaemon(rest []string) int {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 	logger.Info("收到退出信号，停止守护")
+	// 第二次信号强制退出：优雅停止被挂起的 git 命令阻塞时（网络黑洞），不无限等待
+	go func() {
+		<-sigCh
+		logger.Info("收到第二次退出信号，强制退出")
+		os.Exit(1)
+	}()
 	return 0
 }

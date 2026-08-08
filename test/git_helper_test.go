@@ -11,6 +11,9 @@ import (
 	"testing"
 )
 
+// intPtr 返回 int 指针，供构造含 *int 字段（backup_keep/retry_count）的测试配置。
+func intPtr(v int) *int { return &v }
+
 // runGit 在 dir 中执行 git 命令，失败即终止测试；返回去空白输出。
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()

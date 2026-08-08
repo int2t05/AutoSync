@@ -12,6 +12,7 @@ const (
 	OutcomeAutoMerged                       // rebase 自动合并成功
 	OutcomeConflictResolved                 // 冲突已按策略解决
 	OutcomeFailed                           // 错误
+	OutcomeSkipped                          // 已有实例持锁，本次跳过（非失败，不写状态不通知）
 )
 
 // String 返回 Outcome 的中文标签，用于日志与状态展示。
@@ -29,6 +30,8 @@ func (o Outcome) String() string {
 		return "冲突已解决"
 	case OutcomeFailed:
 		return "失败"
+	case OutcomeSkipped:
+		return "跳过"
 	default:
 		return "未知"
 	}

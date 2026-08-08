@@ -105,3 +105,33 @@ func TestEnsure_NoTempResidue(t *testing.T) {
 		}
 	}
 }
+
+// TestEnsure_NegationEntry 验证 `!` 否定条目按原文追加保留：与基模式（foo）不同键，
+// 二者并存，靠 git 后匹配覆盖先匹配的语义生效（追加在末尾的否定条目解除忽略）。
+func TestEnsure_NegationEntry(t *testing.T) {
+	d, err := os.MkdirTemp("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(d)
+	p := filepath.Join(d, ".gitignore")
+	if err := os.WriteFile(p, []byte("foo\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	added, err := gitignore.Ensure(p, []string{"foo", "!foo"})
+	if err != nil {
+		t.Fatalf("Ensure 失败: %v", err)
+	}
+	if added != 1 {
+		t.Errorf("追加数 = %d, 期望 1（仅 !foo 缺失）", added)
+	}
+	data, _ := os.ReadFile(p)
+	s := string(data)
+	if !strings.Contains(s, "!foo") {
+		t.Errorf("否定条目 !foo 未追加: %q", s)
+	}
+	if lines := strings.Split(strings.TrimSpace(s), "\n"); len(lines) != 2 {
+		t.Errorf("应恰有 2 行（foo + !foo），got %d 行: %q", len(lines), s)
+	}
+}

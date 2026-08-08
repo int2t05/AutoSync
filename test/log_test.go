@@ -110,3 +110,30 @@ func TestLogger_ConcurrentSafe(t *testing.T) {
 		t.Errorf("并发写入丢失: 记录到 %d 行, 期望 %d", got, n)
 	}
 }
+
+// TestLogger_Rotates 验证日志大小超限自动轮转：主文件改名 .1（保留一份旧日志），新内容写入新文件。
+func TestLogger_Rotates(t *testing.T) {
+	d, err := os.MkdirTemp("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(d)
+	p := d + "/autosync.log"
+
+	lg, err := log.New(p, false)
+	if err != nil {
+		t.Fatalf("New 失败: %v", err)
+	}
+	big := strings.Repeat("x", 2<<20) // 2MB 消息
+	for i := 0; i < 6; i++ {          // 6 × 2MB = 12MB > 10MB 上限
+		lg.Info(big)
+	}
+	lg.Close()
+
+	if _, err := os.Stat(p + ".1"); err != nil {
+		t.Errorf("应产生轮转文件 .1: %v", err)
+	}
+	if info, err := os.Stat(p); err != nil || info.Size() > 10<<20 {
+		t.Errorf("轮转后主文件应小于上限, size=%v err=%v", info.Size(), err)
+	}
+}

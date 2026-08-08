@@ -61,7 +61,8 @@ func (s *Store) Save(st State) error {
 	return s.saveLocked(st)
 }
 
-// saveLocked 序列化并原子写入状态（临时文件 + rename，防崩溃写坏半份 JSON，须持 s.mu）。
+// saveLocked 序列化并原子写入状态（临时文件 + Sync + rename，防崩溃写坏半份 JSON 或丢落盘，须持 s.mu）。
+// rename 在 Windows 上可能瞬时失败（目标被短暂打开，如杀软扫描），有限次重试后放弃。
 func (s *Store) saveLocked(st State) error {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
@@ -78,15 +79,23 @@ func (s *Store) saveLocked(st State) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("写入状态失败: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("同步状态失败: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("关闭临时文件失败: %w", err)
 	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("替换状态文件失败: %w", err)
+	for i := 0; i < 3; i++ {
+		if err := os.Rename(tmpName, s.path); err == nil {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	return nil
+	os.Remove(tmpName)
+	return fmt.Errorf("替换状态文件失败: %w", err)
 }
 
 // Update 在锁内读-改-写：读取现有状态，回调 mod 就地修改后保存。

@@ -20,8 +20,8 @@ type Config struct {
 	Interval          string        `yaml:"interval" json:"interval,omitempty"`             // 轮询间隔字符串，默认 "1m"
 	IntervalDur       time.Duration `yaml:"-" json:"-"`                                      // 解析后的轮询间隔
 	ConflictStrategy  string        `yaml:"conflict_strategy" json:"conflict_strategy,omitempty"` // 冲突策略：local_wins|remote_wins|conflict_files
-	BackupKeep        int           `yaml:"backup_keep" json:"backup_keep,omitempty"`       // backup 分支保留数，默认 10
-	RetryCount        int           `yaml:"retry_count" json:"retry_count,omitempty"`       // 网络操作重试次数，默认 3
+	BackupKeep        *int          `yaml:"backup_keep,omitempty" json:"backup_keep,omitempty"` // backup 分支保留数，默认 10；指针区分"未设置"与显式 0
+	RetryCount        *int          `yaml:"retry_count,omitempty" json:"retry_count,omitempty"` // 网络操作重试次数，默认 3；指针区分"未设置"与显式 0
 	RetryBaseDelay    string        `yaml:"retry_base_delay" json:"retry_base_delay,omitempty"` // 重试退避基数字符串，默认 "1s"
 	RetryBaseDelayDur time.Duration `yaml:"-" json:"-"`                                      // 解析后的重试退避基数
 	CommitMsgFormat   string        `yaml:"commit_msg_format" json:"commit_msg_format,omitempty"` // 提交消息模板，默认 "auto sync: {{.Timestamp}}"
@@ -30,6 +30,9 @@ type Config struct {
 	ShowConsole       bool          `yaml:"show_console" json:"show_console,omitempty"`      // 是否输出到控制台
 	Ignore            []string      `yaml:"ignore" json:"ignore,omitempty"`                 // 写入 repo_dir/.gitignore 的条目
 }
+
+// intPtr 返回 int 的指针（构造 *int 配置字段的默认值）。
+func intPtr(v int) *int { return &v }
 
 // defaultIgnore 是未配置 ignore 时的默认忽略条目：
 // 排除系统垃圾文件，避免污染同步仓库（byproduct 已位于 ~/.autosync/，不进仓库）。
@@ -55,11 +58,11 @@ func (c *Config) applyDefaults() {
 	if c.ConflictStrategy == "" {
 		c.ConflictStrategy = "conflict_files"
 	}
-	if c.BackupKeep == 0 {
-		c.BackupKeep = 10
+	if c.BackupKeep == nil {
+		c.BackupKeep = intPtr(10)
 	}
-	if c.RetryCount == 0 {
-		c.RetryCount = 3
+	if c.RetryCount == nil {
+		c.RetryCount = intPtr(3)
 	}
 	if c.RetryBaseDelay == "" {
 		c.RetryBaseDelay = "1s"

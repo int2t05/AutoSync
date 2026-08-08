@@ -33,6 +33,9 @@ type TrayApp struct {
 	wg     stdsync.WaitGroup // 跟踪手动同步 goroutine，退出前等待收尾
 }
 
+// Supported 返回当前构建是否支持托盘（Fyne 构建恒 true，供 install 校验 Windows 自启可用性）。
+func Supported() bool { return true }
+
 // NewTrayApp 创建托盘应用，构造 Fyne 应用实例。
 func NewTrayApp(sched *tasksched.TaskScheduler, store *configstore.Store, logger *log.Logger) *TrayApp {
 	return &TrayApp{app: app.NewWithID("autosync"), sched: sched, store: store, logger: logger}
@@ -195,6 +198,7 @@ func (a *TrayApp) editTask(existing *configstore.Task, list *widget.List, select
 	t := &configstore.Task{}
 	if existing != nil {
 		*t = *existing
+		t.Ignore = append([]string(nil), existing.Ignore...) // 深拷贝切片，防表单修改污染原任务
 	}
 	nameEntry := widget.NewEntry()
 	repoEntry := widget.NewEntry()

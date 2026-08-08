@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 )
 
 // dataDirName 是用户主目录下的数据目录名。
@@ -42,14 +44,28 @@ func LogFilePath() string {
 }
 
 // StateFilePath 返回任务状态文件路径 ~/.autosync/state/autosync.state-<name>.json。
-// name 应已安全化（由调用方负责，如 configstore.safeName）。
+// name 经 SafeName 规整，杜绝含路径分隔符 / .. 的名称越界写。
 func StateFilePath(name string) string {
-	return filepath.Join(UserDataDir(), "state", fmt.Sprintf("autosync.state-%s.json", name))
+	return filepath.Join(UserDataDir(), "state", fmt.Sprintf("autosync.state-%s.json", SafeName(name)))
 }
 
 // LockFilePath 返回任务锁文件路径 ~/.autosync/locks/autosync.lock-<name>。
 func LockFilePath(name string) string {
-	return filepath.Join(UserDataDir(), "locks", fmt.Sprintf("autosync.lock-%s", name))
+	return filepath.Join(UserDataDir(), "locks", fmt.Sprintf("autosync.lock-%s", SafeName(name)))
+}
+
+// unsafeNameRe 匹配文件名不安全字符。
+var unsafeNameRe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+
+// SafeName 把任务名转为文件名安全形式：非字母数字/下划线/连字符替换为 _，去首尾 ._，空串回退 default。
+// 为 byproduct 路径的单一安全边界（判重/查找/路径解析统一使用），防越界写。
+func SafeName(name string) string {
+	s := unsafeNameRe.ReplaceAllString(name, "_")
+	s = strings.Trim(s, "._")
+	if s == "" {
+		s = "default"
+	}
+	return s
 }
 
 // DaemonLockPath 返回守护单实例锁路径 ~/.autosync/locks/autosync.daemon.lock。

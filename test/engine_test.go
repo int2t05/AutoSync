@@ -5,14 +5,11 @@ package tests
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -21,34 +18,16 @@ import (
 	"autosync/internal/engine"
 )
 
-// engineBinOnce 保证只构建一次 autosync 二进制供 engine 子进程测试复用。
+// engineBinPath / engineBinErr 由 TestMain 构建 autosync 二进制一次（供 engine 子进程测试复用），
+// 临时目录在包结束时清理。并行禁用：全局 AUTOSYNC_DATA_DIR 与逐测试 t.Setenv 覆盖互斥。
 var (
-	engineBinOnce sync.Once
 	engineBinPath string
 	engineBinErr  error
 )
 
-// engineBin 构建并返回 autosync 二进制路径；构建失败则 skip（如缺 go 工具链）。
+// engineBin 返回 autosync 二进制路径；构建失败则 skip（如缺 go 工具链）。
 func engineBin(t *testing.T) string {
 	t.Helper()
-	engineBinOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "autosync-engine-*")
-		if err != nil {
-			engineBinErr = err
-			return
-		}
-		name := "autosync-test"
-		if runtime.GOOS == "windows" {
-			name += ".exe"
-		}
-		engineBinPath = filepath.Join(dir, name)
-		// go test 的 cwd 为 test/，仓库根是其父目录
-		cmd := exec.Command("go", "build", "-o", engineBinPath, "./cmd/autosync")
-		cmd.Dir = ".."
-		if out, err := cmd.CombinedOutput(); err != nil {
-			engineBinErr = fmt.Errorf("go build: %v\n%s", err, out)
-		}
-	})
 	if engineBinErr != nil {
 		t.Skipf("跳过（无法构建 engine 二进制）: %v", engineBinErr)
 	}

@@ -29,15 +29,16 @@ type Engine struct {
 	sched   *tasksched.TaskScheduler
 	logger  *log.Logger
 	r       io.Reader
-	evCh    chan []byte         // 事件队列（有界）：壳不读 stdout 时丢弃而非阻塞引擎循环
-	flushCh chan chan struct{}  // 冲刷请求：写环排空队列后关闭完成通道
-	dropN   atomic.Int64        // 丢弃计数（节流日志）
+	evCh    chan []byte        // 事件队列（有界）：壳不读 stdout 时丢弃而非阻塞引擎循环
+	flushCh chan chan struct{} // 冲刷请求：写环排空队列后关闭完成通道
+	done    chan struct{}      // Run 返回时关闭，令 writeLoop 退出
+	dropN   atomic.Int64       // 丢弃计数（节流日志）
 }
 
 // New 创建引擎。内部构造 ipcNotifier（notify 事件经 writeEvent）与 onResult（ticker 结果上报）。
 // 启动单写者 writeLoop 写 stdout：事件顺序由单写者保证，且引擎循环不被壳不读的 stdout 阻塞。
 func New(store *configstore.Store, logger *log.Logger, r io.Reader, w io.Writer) *Engine {
-	e := &Engine{store: store, logger: logger, r: r, evCh: make(chan []byte, 8), flushCh: make(chan chan struct{})}
+	e := &Engine{store: store, logger: logger, r: r, evCh: make(chan []byte, 8), flushCh: make(chan chan struct{}), done: make(chan struct{})}
 	ipcN := &ipcNotifier{e: e}
 	onResult := func(task string, res sync.SyncResult) {
 		e.writeSyncResult(0, task, res)
@@ -61,6 +62,7 @@ func (e *Engine) Run() int {
 	sc := bufio.NewScanner(e.r)
 	// 放宽单行上限（默认 64KB）：config-save 可能携带大型任务配置 JSON，超限会静默退出且无 bye
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	quit := false
 	for sc.Scan() {
 		var cmd Command
 		if err := json.Unmarshal(sc.Bytes(), &cmd); err != nil {
@@ -68,11 +70,21 @@ func (e *Engine) Run() int {
 			continue
 		}
 		if e.handle(cmd) {
-			break // quit
+			quit = true
+			break
 		}
+	}
+	// 主循环非 quit 退出（stdin 关闭 / 超长行）：补发 bye 防壳悬挂（bye 不可丢，阻塞入队）
+	if !quit {
+		reason := "EOF"
+		if err := sc.Err(); err != nil {
+			reason = "scanner error: " + err.Error()
+		}
+		e.writeEventBlocking(Event{Event: "bye", Reason: reason})
 	}
 	e.sched.Stop()           // 停止 ticker（有界），其后不再产生新的 onResult 事件
 	e.flush(2 * time.Second) // 冲刷 bye（壳不读 stdout 时写环阻塞，超时放弃）
+	close(e.done)            // 令 writeLoop 退出（in-process 测试不泄漏 goroutine）
 	return 0
 }
 
@@ -82,11 +94,15 @@ func (e *Engine) handle(cmd Command) bool {
 	case "status":
 		e.writeEvent(Event{ID: cmd.ID, Event: "status", Tasks: e.taskStatuses()})
 	case "sync-now":
-		if res, err := e.sched.RunNow(cmd.Task); err != nil {
-			e.cmdError(cmd.ID, err)
-		} else {
-			e.writeSyncResult(cmd.ID, cmd.Task, res)
-		}
+		// 异步执行：长同步（git 超时×重试）不应阻塞命令循环，否则 quit/pause 被卡住
+		task, id := cmd.Task, cmd.ID
+		go func() {
+			if res, err := e.sched.RunNow(task); err != nil {
+				e.writeEvent(Event{ID: id, Event: "error", Message: err.Error()})
+			} else {
+				e.writeSyncResult(id, task, res)
+			}
+		}()
 	case "pause":
 		if err := e.sched.SetPaused(cmd.Task, true); err != nil {
 			e.cmdError(cmd.ID, err)
@@ -110,7 +126,7 @@ func (e *Engine) handle(cmd Command) bool {
 			e.writeEvent(Event{ID: cmd.ID, Event: "config-saved", Tasks: ts, ConfigTasks: dtos})
 		}
 	case "quit":
-		e.writeEvent(Event{Event: "bye", Reason: "quit"})
+		e.writeEventBlocking(Event{Event: "bye", Reason: "quit"})
 		return true
 	default:
 		e.writeEvent(Event{ID: cmd.ID, Event: "error", Message: "未知命令: " + cmd.Cmd})
@@ -181,12 +197,16 @@ func buildStatus(r *tasksched.TaskRunner) TaskStatus {
 }
 
 // buildStatusFromTask 从任务构造状态投影（读 state 文件），供配置保存后的即时响应。
+// Paused 标志独立于同步结果读取，config-saved 后须如实反映暂停态。
 func buildStatusFromTask(t *configstore.Task) TaskStatus {
 	ts := TaskStatus{Name: t.Name, RepoDir: t.RepoDir, Interval: t.Interval}
-	if st, err := state.New(t.ResolveStateFile()).Load(); err == nil && !st.LastSyncAt.IsZero() {
-		ts.LastSyncAt = st.LastSyncAt.Format(time.RFC3339)
-		ts.LastOutcome = st.LastOutcome
-		ts.LastMessage = st.LastMessage
+	if st, err := state.New(t.ResolveStateFile()).Load(); err == nil {
+		ts.Paused = st.Paused
+		if !st.LastSyncAt.IsZero() {
+			ts.LastSyncAt = st.LastSyncAt.Format(time.RFC3339)
+			ts.LastOutcome = st.LastOutcome
+			ts.LastMessage = st.LastMessage
+		}
 	}
 	return ts
 }
@@ -230,8 +250,25 @@ func (e *Engine) writeEvent(ev Event) {
 	}
 }
 
+// writeEventBlocking 有界阻塞入队事件（bye 用）：正常时队列有空位，立即入队保证 bye 不被丢弃
+// （壳靠 bye 判断引擎退出，丢 bye 会悬挂）；异常时（壳不读 stdout、写环被填满管道卡死）等待
+// 入队超时即放弃，令退出路径有界（Windows os.Pipe 无写 deadline，写环可能永久阻塞，不能无限等）。
+func (e *Engine) writeEventBlocking(ev Event) {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	data = append(data, '\n')
+	select {
+	case e.evCh <- data:
+	case <-time.After(2 * time.Second):
+		e.logger.Warnf("bye 事件入队超时，丢弃（壳未读 stdout？）")
+	}
+}
+
 // writeLoop 单写者消费事件队列写 stdout，保证事件顺序且不阻塞引擎循环。
 // 壳不读 stdout（管道写满）时 Write 阻塞的仅此一个 goroutine，队列填满后事件被丢弃。
+// Run 返回关闭 done 后退出（in-process 场景不泄漏 goroutine）。
 func (e *Engine) writeLoop(w io.Writer) {
 	for {
 		select {
@@ -249,6 +286,8 @@ func (e *Engine) writeLoop(w io.Writer) {
 					break drain
 				}
 			}
+		case <-e.done:
+			return
 		}
 	}
 }

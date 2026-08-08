@@ -25,8 +25,8 @@ func schedTask(t *testing.T, name, repoDir, remoteURL, interval string) *configs
 	task.Remote = "origin"
 	task.Branch = "main"
 	task.ConflictStrategy = "conflict_files"
-	task.BackupKeep = 10
-	task.RetryCount = 3
+	task.BackupKeep = intPtr(10)
+	task.RetryCount = intPtr(3)
 	task.RetryBaseDelay = "1s"
 	task.CommitMsgFormat = "auto sync: {{.Timestamp}}"
 	task.GitTimeout = "60s"
@@ -62,6 +62,19 @@ func waitStateFile(task *configstore.Task, d time.Duration) bool {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return false
+}
+
+// waitForFile 轮询等待文件出现（最多 d），超时 Fatal。供测试同步点，替代脆弱的固定 sleep。
+func waitForFile(t *testing.T, path, what string, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("等待 %s 超时（%v）: 文件 %s 未出现", what, d, path)
 }
 
 // presetGitignore 预先用任务 ignore 条目生成并提交 .gitignore，使 TaskRunner 的 Ensure 成为空操作。
@@ -261,7 +274,8 @@ func TestTaskScheduler_Reload(t *testing.T) {
 }
 
 // TestScheduler_StopBounded 验证 git 命令挂起时 Stop 仍有界返回（此前 wg.Wait 永久等待）。
-// pre-push hook 使推送挂起 30s，git_timeout=1s 强制终止后 ticker goroutine 退出，Stop 快速返回。
+// pre-push hook 使推送挂起 30s 并写标记文件，git_timeout=1s 强制终止后 ticker goroutine 退出，Stop 快速返回。
+// 以标记文件同步"已进入挂起"点，替代脆弱的固定 sleep（慢机器上不足时测试退化为空转）。
 func TestScheduler_StopBounded(t *testing.T) {
 	repo := makeWorkRepo(t)
 	remote := makeBareRemote(t)
@@ -271,15 +285,17 @@ func TestScheduler_StopBounded(t *testing.T) {
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\nsleep 30\n")
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "push-started"))
+	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\necho started > \""+marker+"\"\nsleep 30\n")
 
 	task := schedTask(t, "bounded", repo, remote, "50ms")
 	task.GitTimeoutDur = time.Second // 单条 git 命令 1s 超时，Stop 有界
-	task.RetryCount = 1              // 单次尝试，避免重试放大等待
+	task.RetryCount = intPtr(1)      // 单次尝试，避免重试放大等待
 	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Start()
+	defer s.Stop()
 
-	time.Sleep(300 * time.Millisecond) // 等待首次同步进入挂起的 fetch
+	waitForFile(t, marker, "首次同步进入挂起的 push", 3*time.Second)
 	start := time.Now()
 	s.Stop()
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
@@ -299,15 +315,16 @@ func TestScheduler_ReloadNonBlocking(t *testing.T) {
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\nsleep 30\n")
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "push-started"))
+	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\necho started > \""+marker+"\"\nsleep 30\n")
 	task := schedTask(t, "reloadnb", repo, remote, "50ms")
 	task.GitTimeoutDur = time.Second
-	task.RetryCount = 1
+	task.RetryCount = intPtr(1)
 
 	s := tasksched.NewTaskScheduler([]*configstore.Task{task}, schedLogger(t), &recordingNotifier{}, nil)
 	s.Start()
 	defer s.Stop()
-	time.Sleep(300 * time.Millisecond) // 首次同步卡进挂起 push
+	waitForFile(t, marker, "首次同步卡进挂起的 push", 3*time.Second)
 
 	repo2 := makeWorkRepo(t)
 	remote2 := makeBareRemote(t)

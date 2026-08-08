@@ -5,7 +5,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
-VERSION="1.2.0"
+# 版本号单一来源：internal/engine/engine.go 的 Version 常量（与 ready 事件、--version 一致）
+VERSION="$(sed -n 's/^const Version = "\([0-9.]*\)"/\1/p' "$ROOT/internal/engine/engine.go")"
 
 if [ ! -d "$DIST/AutoSync.app" ]; then
     echo "❌ 未找到 $DIST/AutoSync.app，先运行 bash macos/build-app.sh"

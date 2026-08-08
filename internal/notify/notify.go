@@ -46,8 +46,8 @@ func PolicyFor(result sync.SyncResult) Decision {
 	switch result.Outcome {
 	case sync.OutcomeInitDone:
 		return Decision{Notify: true, Severity: SeverityInfo, Title: "AutoSync 初始化完成", Body: result.Message}
-	case sync.OutcomeNoChanges, sync.OutcomePushed, sync.OutcomeAutoMerged:
-		// 日常成功静默，仅写日志（无感核心）
+	case sync.OutcomeNoChanges, sync.OutcomePushed, sync.OutcomeAutoMerged, sync.OutcomeSkipped:
+		// 日常成功静默，仅写日志（无感核心）；跳过亦静默
 		return Decision{Notify: false}
 	case sync.OutcomeConflictResolved:
 		body := result.Message

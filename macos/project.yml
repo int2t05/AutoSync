@@ -12,7 +12,9 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "13.0"
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.2.0"
+    # 版本号单一来源：build-app.sh 从 internal/engine/engine.go 提取并注入 ${VERSION}；
+    # 手动 xcodegen generate 前需导出 VERSION（默认取 engine.go 的 Version）。
+    MARKETING_VERSION: "${VERSION}"
     CURRENT_PROJECT_VERSION: "1"
 targets:
   AutoSync:

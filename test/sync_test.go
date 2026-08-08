@@ -25,7 +25,7 @@ func newConfig(repoDir, remoteURL string) *config.Config {
 		Remote:           "origin",
 		Branch:           "main",
 		ConflictStrategy: "local_wins",
-		BackupKeep:       10,
+		BackupKeep:       intPtr(10),
 		CommitMsgFormat:  "auto sync: {{.Timestamp}}",
 	}
 }
@@ -203,6 +203,7 @@ func TestSync_Conflict_RemoteWins(t *testing.T) {
 	commitFile(t, repo, "same.txt", "LOCAL")
 	pushAuxCommitToRemote(t, remote, "same.txt", "REMOTE")
 
+	writeFile(t, repo, "untracked.txt", "junk") // 未跟踪文件，验证 clean -fd 清除
 	cfg := newConfig(repo, remote)
 	cfg.ConflictStrategy = "remote_wins"
 	result := newSyncer(t, cfg).Run()
@@ -213,6 +214,53 @@ func TestSync_Conflict_RemoteWins(t *testing.T) {
 	// 远程胜出：本地 same.txt 被重置为 REMOTE
 	if !fileContains(t, filepath.Join(repo, "same.txt"), "REMOTE") {
 		t.Errorf("remote_wins 后本地 same.txt 应为 REMOTE")
+	}
+	// clean -fd 清除未跟踪文件（untracked.txt 不在远程，重置后成为未跟踪并被清理）
+	if fileExists(t, filepath.Join(repo, "untracked.txt")) {
+		t.Errorf("remote_wins 应 clean -fd 清除未跟踪文件 untracked.txt")
+	}
+}
+
+// TestSync_ConflictFiles_RemoteDeleted_Preserved 验证 conflict_files 的 Deleted(D) 分支：
+// 远程删除的文件（gone.txt）本地仍有版本，冲突时须保留为副本——reset 后本地版不丢。
+func TestSync_ConflictFiles_RemoteDeleted_Preserved(t *testing.T) {
+	repo := makeWorkRepo(t)
+	remote := makeBareRemote(t)
+	addRemote(t, repo, "origin", remote)
+	pushToRemote(t, repo, "origin", "main")
+	commitFile(t, repo, "gone.txt", "v1")
+	runGit(t, repo, "push", "origin", "main") // 远程先有 gone.txt
+	commitFile(t, repo, "same.txt", "LOCAL")  // 本地新提交（不推送）
+
+	// 远程删除 gone.txt 并改写 same.txt（从 clone 提交，隔离本地）
+	c := cloneRemote(t, remote)
+	runGit(t, c, "rm", "gone.txt")
+	writeFile(t, c, "same.txt", "REMOTE")
+	runGit(t, c, "add", "-A")
+	runGit(t, c, "commit", "-m", "remote: delete gone, change same")
+	runGit(t, c, "push", "origin", "main")
+
+	cfg := newConfig(repo, remote)
+	cfg.ConflictStrategy = "conflict_files"
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeConflictResolved {
+		t.Fatalf("Outcome = %s, 期望 ConflictResolved", result.Outcome)
+	}
+	// 主文件 same.txt 为 REMOTE；远程已删除的 gone.txt 被重置后本地也不存在
+	if !fileContains(t, filepath.Join(repo, "same.txt"), "REMOTE") {
+		t.Errorf("主文件 same.txt 应为 REMOTE")
+	}
+	if fileExists(t, filepath.Join(repo, "gone.txt")) {
+		t.Errorf("remote 已删除 gone.txt，重置后本地不应存在")
+	}
+	// 本地版保留为副本：gone 副本内容为 v1
+	gMatches, err := filepath.Glob(filepath.Join(repo, "gone.sync-conflict-*.txt"))
+	if err != nil || len(gMatches) != 1 {
+		t.Fatalf("应存在 1 个 gone.sync-conflict-*.txt 副本, got %d (err=%v)", len(gMatches), err)
+	}
+	if !fileContains(t, gMatches[0], "v1") {
+		t.Errorf("gone 副本内容应为 v1（本地版保留）")
 	}
 }
 
@@ -435,6 +483,8 @@ func TestNormalizeRemoteURL(t *testing.T) {
 		{"https://github.com/int2t05/File.git", "git@github.com:int2t05/File"},
 		{"https://github.com/int2t05/File", "https://github.com/int2t05/File.git"},
 		{"ssh://git@github.com/int2t05/File", "github.com:int2t05/File"},
+		// 非默认端口：带 scheme 的 host:port 保留端口，协议/用户差异仍等价（修复前误拼成 host/2222/path）
+		{"ssh://git@host:2222/path", "https://host:2222/path"},
 	}
 	for _, c := range cases {
 		na, nb := gitop.NormalizeRemoteURL(c.a), gitop.NormalizeRemoteURL(c.b)
@@ -509,6 +559,156 @@ func TestSync_BranchMismatch_Fail(t *testing.T) {
 	}
 	if cur := runGit(t, repo, "branch", "--show-current"); cur != "dev" {
 		t.Errorf("HEAD 不应被改动，当前分支 = %s", cur)
+	}
+}
+
+// TestSync_FetchFail_DegradesToNoChanges 验证 Fetch 失败（远程不可达）降级为 NoChanges：
+// 不报 Failed 触发错误通知，避免网络抖动频繁打扰用户（flow.md 状态机含该路径）。
+func TestSync_FetchFail_DegradesToNoChanges(t *testing.T) {
+	repo := makeWorkRepo(t)
+	deadRemote := filepath.Join(t.TempDir(), "missing.git") // 不存在的远程路径
+	addRemote(t, repo, "origin", deadRemote)
+	writeFile(t, repo, "a.txt", "x") // 本地未提交变更（将被提交）
+
+	cfg := newConfig(repo, deadRemote) // RemoteURL 与实际远程一致（同指向不存在的路径）
+	result := newSyncer(t, cfg).Run()
+
+	if result.Outcome != sync.OutcomeNoChanges {
+		t.Fatalf("Outcome = %s, 期望 NoChanges（fetch 失败降级，不报 Failed）", result.Outcome)
+	}
+	if !strings.Contains(result.Message, "远程暂不可达") {
+		t.Errorf("消息应提示远程不可达: %s", result.Message)
+	}
+}
+
+// TestSync_DryRun_PlanBranches 表驱动覆盖 dry-run 各状态分支（init/无 HEAD/配置错误/远程领先/分叉/本地领先）。
+// dry-run 不联网：远程领先/分叉/本地领先场景先 fetch 使本地跟踪引用与远程一致。
+func TestSync_DryRun_PlanBranches(t *testing.T) {
+	cases := []struct {
+		name   string
+		setup  func(t *testing.T) *config.Config
+		expect string // 计划中应包含的步骤子串
+	}{
+		{
+			name: "init 空目录空远程",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeTempDir(t, "autosync-dryrun-*") // 空目录，非 git 仓库
+				remote := makeBareRemote(t)
+				return newConfig(repo, remote)
+			},
+			expect: "首次运行：将初始化仓库",
+		},
+		{
+			name: "无 HEAD 远程有提交",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeTempDir(t, "autosync-dryrun-*")
+				runGit(t, repo, "init", "-b", "main") // 空仓库，无提交
+				remote := makeBareRemote(t)
+				pushAuxCommitToRemote(t, remote, "remote.txt", "remote")
+				addRemote(t, repo, "origin", remote)
+				return newConfig(repo, remote)
+			},
+			expect: "仓库无提交：将拉取远程分支对齐",
+		},
+		{
+			name: "远程名不存在（配置错误）",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeWorkRepo(t)
+				remote := makeBareRemote(t)
+				addRemote(t, repo, "origin", remote)
+				cfg := newConfig(repo, remote)
+				cfg.Remote = "upstream" // 仓库只有 origin
+				return cfg
+			},
+			expect: "远程 upstream 不存在",
+		},
+		{
+			name: "远程地址与配置不一致",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeWorkRepo(t)
+				remote := makeBareRemote(t)
+				addRemote(t, repo, "origin", remote)
+				pushToRemote(t, repo, "origin", "main")
+				cfg := newConfig(repo, remote)
+				cfg.RemoteURL = remote + "/other"
+				return cfg
+			},
+			expect: "远程地址与配置不一致",
+		},
+		{
+			name: "当前分支与配置不一致",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeWorkRepo(t)
+				remote := makeBareRemote(t)
+				addRemote(t, repo, "origin", remote)
+				pushToRemote(t, repo, "origin", "main")
+				runGit(t, repo, "checkout", "-b", "dev") // 当前分支 dev
+				return newConfig(repo, remote)
+			},
+			expect: "当前分支与配置不一致",
+		},
+		{
+			name: "远程领先 RemoteAhead",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeWorkRepo(t)
+				remote := makeBareRemote(t)
+				addRemote(t, repo, "origin", remote)
+				pushToRemote(t, repo, "origin", "main")
+				pushAuxCommitToRemote(t, remote, "remote.txt", "remote")
+				runGit(t, repo, "fetch", "origin") // 本地跟踪引用对齐远程
+				return newConfig(repo, remote)
+			},
+			expect: "远程有新提交（RemoteAhead）：将 pull --rebase",
+		},
+		{
+			name: "真正分叉 Diverged",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeWorkRepo(t)
+				remote := makeBareRemote(t)
+				addRemote(t, repo, "origin", remote)
+				pushToRemote(t, repo, "origin", "main")
+				commitFile(t, repo, "local.txt", "local")            // 本地新提交
+				pushAuxCommitToRemote(t, remote, "remote.txt", "remote") // 远程新提交
+				runGit(t, repo, "fetch", "origin")
+				return newConfig(repo, remote)
+			},
+			expect: "远程有新提交（Diverged）：将 pull --rebase",
+		},
+		{
+			name: "本地领先 LocalAhead",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeWorkRepo(t)
+				remote := makeBareRemote(t)
+				addRemote(t, repo, "origin", remote)
+				pushToRemote(t, repo, "origin", "main")
+				commitFile(t, repo, "local.txt", "local") // 本地新提交
+				runGit(t, repo, "fetch", "origin")        // 远程仍落后
+				return newConfig(repo, remote)
+			},
+			expect: "本地领先（LocalAhead）：将 push（快进）",
+		},
+		{
+			name: "一致 UpToDate",
+			setup: func(t *testing.T) *config.Config {
+				repo := makeWorkRepo(t)
+				remote := makeBareRemote(t)
+				addRemote(t, repo, "origin", remote)
+				pushToRemote(t, repo, "origin", "main")
+				runGit(t, repo, "fetch", "origin")
+				return newConfig(repo, remote)
+			},
+			expect: "本地与远程一致（UpToDate）：无需推送",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := c.setup(t)
+			plan := newSyncer(t, cfg).DryRun()
+			joined := strings.Join(plan.Steps, "\n")
+			if !strings.Contains(joined, c.expect) {
+				t.Errorf("计划应包含 %q\n%s", c.expect, joined)
+			}
+		})
 	}
 }
 
