@@ -281,12 +281,8 @@ func TestScheduler_StopBounded(t *testing.T) {
 	remote := makeBareRemote(t)
 	addRemote(t, repo, "origin", remote)
 	pushToRemote(t, repo, "origin", "main")
-	hooksDir := filepath.Join(repo, ".git", "hooks")
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		t.Fatal(err)
-	}
 	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "push-started"))
-	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\necho started > \""+marker+"\"\nsleep 30\n")
+	writeHook(t, repo, "pre-push", "#!/bin/sh\necho started > \""+marker+"\"\nsleep 30\n")
 
 	task := schedTask(t, "bounded", repo, remote, "50ms")
 	task.GitTimeoutDur = time.Second // 单条 git 命令 1s 超时，Stop 有界
@@ -311,12 +307,8 @@ func TestScheduler_ReloadNonBlocking(t *testing.T) {
 	remote := makeBareRemote(t)
 	addRemote(t, repo, "origin", remote)
 	pushToRemote(t, repo, "origin", "main")
-	hooksDir := filepath.Join(repo, ".git", "hooks")
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		t.Fatal(err)
-	}
 	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "push-started"))
-	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\necho started > \""+marker+"\"\nsleep 30\n")
+	writeHook(t, repo, "pre-push", "#!/bin/sh\necho started > \""+marker+"\"\nsleep 30\n")
 	task := schedTask(t, "reloadnb", repo, remote, "50ms")
 	task.GitTimeoutDur = time.Second
 	task.RetryCount = intPtr(1)

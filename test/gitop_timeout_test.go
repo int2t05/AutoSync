@@ -5,8 +5,6 @@ package tests
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,11 +20,7 @@ func TestGitOp_CommandTimeout(t *testing.T) {
 	addRemote(t, repo, "origin", remote)
 	pushToRemote(t, repo, "origin", "main") // 初始推送先完成，此时 hook 未安装
 
-	hooksDir := filepath.Join(repo, ".git", "hooks")
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, hooksDir, "pre-push", "#!/bin/sh\nsleep 30\n")
+	writeHook(t, repo, "pre-push", "#!/bin/sh\nsleep 30\n")
 
 	git := gitop.NewExecGit(repo, schedLogger(t), 300*time.Millisecond)
 	start := time.Now()

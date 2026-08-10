@@ -5,7 +5,6 @@ package tests
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -369,11 +368,7 @@ func TestSync_PullFail_NotConflict_NoReset(t *testing.T) {
 	pushAuxCommitToRemote(t, remote, "remote.txt", "remote") // 远程领先 → Diverged
 
 	// pre-rebase 钩子直接拒绝：rebase 未开始即失败，属非冲突原因
-	hooksDir := filepath.Join(repo, ".git", "hooks")
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, hooksDir, "pre-rebase", "#!/bin/sh\nexit 1\n")
+	writeHook(t, repo, "pre-rebase", "#!/bin/sh\nexit 1\n")
 
 	cfg := newConfig(repo, remote)
 	cfg.ConflictStrategy = "remote_wins"

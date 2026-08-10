@@ -65,6 +65,23 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
+// writeHook 在 repo 的 .git/hooks 下写入可执行钩子。
+// Unix 上 git 仅执行带可执行位的钩子，0644 会被静默忽略（push 直接成功、超时不触发）；Windows 下 Git for Windows 经自带 bash 执行钩子，忽略可执行位。
+// 故跨平台统一 0755 并显式 chmod 免受进程 umask 影响，确保 CI（Linux/macOS）与本地（Windows）一致触发。
+func writeHook(t *testing.T, repo, name, content string) {
+	t.Helper()
+	path := filepath.Join(repo, ".git", "hooks", name)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // commitFile 在 repo 中写入文件并提交。
 func commitFile(t *testing.T, repo, name, content string) {
 	t.Helper()
